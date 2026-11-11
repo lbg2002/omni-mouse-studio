@@ -1,0 +1,178 @@
+#!/usr/bin/python3
+"""Command-Line Interface for Delux M618XSD Studio (Hardware & Smart Daemon control)."""
+
+from __future__ import annotations
+
+import argparse
+import json
+import os
+import sys
+
+for _candidate in (os.path.dirname(os.path.realpath(__file__)), "/usr/lib/delux-m618xsd"):
+    if os.path.isdir(os.path.join(_candidate, "delux_m618xsd")) and _candidate not in sys.path:
+        sys.path.insert(0, _candidate)
+        break
+
+from delux_m618xsd.config import CONFIG_PATH, load_config
+from delux_m618xsd.daemon import query_daemon
+from delux_m618xsd.hardware import LIGHT_MODES, M618XSDSession, PollingRate
+from delux_m618xsd.hardware import protocol as hp
+
+
+def _parse_rgb(text: str) -> tuple[int, int, int]:
+    s = text.strip().lstrip("#")
+    if "," in s:
+        parts = [int(x.strip()) for x in s.split(",")]
+        if len(parts) != 3:
+            raise ValueError("RGB 格式应为 R,G,B 或 #RRGGBB")
+        return (parts[0], parts[1], parts[2])
+    if len(s) == 6:
+        return (int(s[0:2], 16), int(s[2:4], 16), int(s[4:6], 16))
+    raise ValueError("RGB 格式应为 R,G,B 或 #RRGGBB")
+
+
+def cmd_status(args: argparse.Namespace) -> int:
+    out: dict = {"daemon": query_daemon("status")}
+    try:
+        with M618XSDSession() as session:
+            hw = session.read_all(profile=1)
+            out["hardware"] = {
+                "node": hw["node"],
+                "firmware": hw["firmware"],
+                "battery": (
+                    {"percent": hw["battery"].percent, "state": hw["battery"].state_label}
+                    if hw["battery"]
+                    else None
+                ),
+                "polling": hw["polling"].to_dict(),
+                "dpi": hw["dpi"].to_dict(),
+                "lighting": hw["lighting"].to_dict(),
+                "buttons": hw["buttons"].to_dict(),
+            }
+    except Exception as exc:
+        out["hardware_error"] = str(exc)
+
+    if args.json:
+        print(json.dumps(out, ensure_ascii=False, indent=2))
+        return 0
+
+    print("=== 多彩 Delux M618XSD 状态总览 ===")
+    if "hardware" in out:
+        hw = out["hardware"]
+        print(f"硬件节点 : {hw['node']}  |  固件: {hw['firmware']}")
+        if hw["battery"]:
+            print(f"电池状态 : {hw['battery']['percent']}% ({hw['battery']['state']})")
+        print(f"回报率   : {hw['polling']['hz']} Hz")
+        cur_st = hw["dpi"]["current_stage"]
+        stages_str = ", ".join(
+            f"{'*' if s['stage'] == cur_st else ''}[{s['stage']}]{s['dpi']}DPI"
+            for s in hw["dpi"]["stages"]
+            if s["enabled"]
+        )
+        print(f"板载 DPI : {stages_str}")
+        lt = hw["lighting"]
+        print(f"RGB 灯光 : {lt['mode_label']} | 颜色 RGB{tuple(lt['rgb'])} | 亮度 {lt['brightness']}/8 | 休眠 {lt['light_sleep_minutes']}m/{lt['deep_sleep_minutes']}m")
+    else:
+        print(f"硬件状态 : {out.get('hardware_error')}")
+
+    dm = out["daemon"]
+    if dm and dm.get("ok"):
+        print(f"智能守护 : 运行中 (PID {dm['pid']}) | 接管设备: {dm['device_path'] or '待命'}")
+        print(f"当前方案 : {dm['active_profile']['name']}  (窗口: {dm['window']['label']})")
+    else:
+        print("智能守护 : 未运行 (可执行 ./m618xsd-daemon 启动)")
+    return 0
+
+
+def cmd_set_dpi(args: argparse.Namespace) -> int:
+    with M618XSDSession() as session:
+        dpi_cfg = session.read_dpi()
+        if args.stage:
+            dpi_cfg.current_stage = max(1, min(5, args.stage))
+        if args.value:
+            target_stage = dpi_cfg.current_stage
+            dpi_cfg.set_stage_dpi(target_stage, args.value)
+        session.write_dpi(dpi_cfg)
+        print(f"已更新板载 DPI：当前第 {dpi_cfg.current_stage} 档 = {dpi_cfg.dpi[dpi_cfg.current_stage - 1]} DPI")
+    return 0
+
+
+def cmd_set_poll(args: argparse.Namespace) -> int:
+    with M618XSDSession() as session:
+        session.write_polling(PollingRate(profile=1, hz=args.hz))
+        print(f"已将板载无线/有线回报率设为 {args.hz} Hz")
+    return 0
+
+
+def cmd_set_rgb(args: argparse.Namespace) -> int:
+    mode_lookup = {k: code for code, (k, _) in LIGHT_MODES.items()}
+    with M618XSDSession() as session:
+        light = session.read_lighting()
+        if args.mode:
+            if args.mode not in mode_lookup:
+                raise SystemExit(f"未知灯效模式 {args.mode!r}，可选: {', '.join(mode_lookup)}")
+            light.mode = mode_lookup[args.mode]
+        if args.color:
+            light.rgb = _parse_rgb(args.color)
+        if args.brightness is not None:
+            light.brightness = max(1, min(8, args.brightness))
+        if args.speed is not None:
+            light.speed = max(1, min(5, args.speed))
+            light.led_speed = light.speed
+        session.write_lighting(light)
+        print(f"已写入板载灯效：{light.mode_label} | RGB{light.rgb} | 亮度 {light.brightness}/8")
+    return 0
+
+
+def cmd_restore_factory(_args: argparse.Namespace) -> int:
+    backup = os.path.join(ROOT, "factory_backup.json")
+    with M618XSDSession() as session:
+        restored = session.restore_backup_file(backup)
+        print(f"已从 {backup} 恢复出厂板载报告: {', '.join(restored)}")
+    return 0
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(description="多彩 Delux M618XSD Linux 命令行控制工具")
+    sub = parser.add_subparsers(dest="cmd")
+
+    p_st = sub.add_parser("status", help="查看鼠标电量、DPI、灯光及后台智能守护状态")
+    p_st.add_argument("--json", action="store_true", help="输出 JSON 格式")
+    p_st.set_defaults(func=cmd_status)
+
+    p_dpi = sub.add_parser("dpi", help="切换 DPI 档位或修改指定档位 DPI 数值 (400-4000)")
+    p_dpi.add_argument("--stage", type=int, choices=[1, 2, 3, 4, 5], help="切换到第 1..5 档")
+    p_dpi.add_argument("--value", type=int, help="将该档位 DPI 修改为指定数值 (400..4000)")
+    p_dpi.set_defaults(func=cmd_set_dpi)
+
+    p_poll = sub.add_parser("poll", help="设置板载回报率 (125 / 250 / 500 / 1000 Hz)")
+    p_poll.add_argument("hz", type=int, choices=[125, 250, 500, 1000])
+    p_poll.set_defaults(func=cmd_set_poll)
+
+    p_rgb = sub.add_parser("rgb", help="设置板载 RGB 灯光模式、颜色与亮度")
+    p_rgb.add_argument("--mode", choices=[k for _, (k, _) in LIGHT_MODES.items()], help="灯效模式")
+    p_rgb.add_argument("--color", help="RGB 颜色，例如 '#00FF88' 或 '0,255,136'")
+    p_rgb.add_argument("--brightness", type=int, help="亮度 1..8")
+    p_rgb.add_argument("--speed", type=int, help="动态速度 1..5")
+    p_rgb.set_defaults(func=cmd_set_rgb)
+
+    p_rst = sub.add_parser("restore-factory", help="一键恢复出厂板载硬件配置")
+    p_rst.set_defaults(func=cmd_restore_factory)
+
+    p_prof = sub.add_parser("profiles", help="列出所有智能按应用切换方案")
+    p_prof.set_defaults(
+        func=lambda _: (
+            print(json.dumps(load_config(CONFIG_PATH).to_dict(), ensure_ascii=False, indent=2)),
+            0,
+        )[1]
+    )
+
+    args = parser.parse_args()
+    if not getattr(args, "cmd", None):
+        args.json = False
+        return cmd_status(args)
+    return args.func(args)
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

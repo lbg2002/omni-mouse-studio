@@ -1,0 +1,12 @@
+[Desktop Entry]
+Name=Delux M618XSD Control Center
+Name[zh_CN]=多彩 M618XSD 硬件控制中心
+Comment=On-Demand 3D Hardware Driver, RGB, DPI & Per-App Smart Remapper for Delux M618XSD
+Comment[zh_CN]=多彩 M618XSD 垂直鼠标 3D 硬件控制、DPI、灯效、侧滚轮与按应用智能配置中心
+Exec=/usr/bin/python3 __PROJECT_ROOT__/m618xsd-studio
+Icon=__PROJECT_ROOT__/delux_m618xsd/ui/assets/delux-m618xsd.svg
+Terminal=false
+Type=Application
+Categories=Settings;HardwareSettings;Utility;
+Keywords=mouse;delux;m618xsd;dpi;rgb;remapper;鼠标;多彩;
+StartupWMClass=delux-m618xsd-studio

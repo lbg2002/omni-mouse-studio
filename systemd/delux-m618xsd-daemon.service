@@ -1,0 +1,15 @@
+[Unit]
+Description=Delux M618XSD Ultra-Lightweight Smart Mouse & Gesture Daemon
+After=graphical-session.target
+PartOf=graphical-session.target
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/python3 __PROJECT_ROOT__/m618xsd-daemon
+Restart=on-failure
+RestartSec=2
+MemoryHigh=36M
+MemoryMax=64M
+
+[Install]
+WantedBy=graphical-session.target

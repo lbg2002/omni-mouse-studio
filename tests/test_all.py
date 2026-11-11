@@ -1,0 +1,151 @@
+#!/usr/bin/python3
+"""Automated unit & live hardware round-trip verification tests for Delux M618XSD Studio."""
+
+from __future__ import annotations
+
+import json
+import os
+import sys
+import unittest
+
+ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+if ROOT not in sys.path:
+    sys.path.insert(0, ROOT)
+
+from delux_m618xsd.config.profiles import ActionSpec, DriverConfig
+from delux_m618xsd.hardware import protocol as hp
+from delux_m618xsd.hardware.keymap import parse_combo_to_evdev
+from delux_m618xsd.hardware.session import M618XSDSession, list_m618xsd_nodes
+
+
+class TestM618XSDProtocol(unittest.TestCase):
+    def setUp(self) -> None:
+        backup_path = os.path.join(ROOT, "factory_backup.json")
+        with open(backup_path, encoding="utf-8") as fh:
+            self.factory = json.load(fh)
+
+    def test_factory_dpi_byte_exact_roundtrip(self) -> None:
+        raw = bytes.fromhex(self.factory["0x04"])
+        parsed = hp.DpiSettings.from_bytes(raw, verify=True)
+        self.assertEqual(parsed.dpi[:5], [800, 1200, 1600, 2400, 4000])
+        self.assertEqual(parsed.current_stage, 2)
+        self.assertEqual(parsed.active_stages, 0x1F)
+        rebuilt = bytes(parsed.build())
+        self.assertEqual(rebuilt, raw, "Rebuilt DPI report must match M618XSD factory bytes 100%!")
+
+    def test_factory_lighting_byte_exact_roundtrip(self) -> None:
+        raw = bytes.fromhex(self.factory["0x05"])
+        parsed = hp.LightingSettings.from_bytes(raw, verify=True)
+        self.assertEqual(parsed.brightness, 8)
+        self.assertEqual(parsed.led_speed, 3)
+        self.assertEqual(parsed.deep_sleep_minutes, 10)
+        self.assertEqual(parsed.debounce_ms, 8)
+        rebuilt = bytes(parsed.build())
+        self.assertEqual(rebuilt, raw, "Rebuilt Lighting report must match M618XSD factory bytes 100%!")
+
+        stream_raw = bytes.fromhex("050f018003a800ff000104022f0000")
+        stream_parsed = hp.LightingSettings.from_bytes(stream_raw, verify=True)
+        self.assertEqual(stream_parsed.mode, 8)
+        self.assertEqual(stream_parsed.mode_key, "stream")
+        self.assertEqual(bytes(stream_parsed.build()), stream_raw)
+
+    def test_factory_polling_byte_exact_roundtrip(self) -> None:
+        raw = bytes.fromhex(self.factory["0x06"])
+        parsed = hp.PollingRate.from_bytes(raw)
+        self.assertEqual(parsed.hz, 250)
+        self.assertEqual(bytes(parsed.build()), raw)
+
+    def test_factory_buttons_byte_exact_roundtrip(self) -> None:
+        raw = bytes.fromhex(self.factory["0x08"])
+        parsed = hp.ButtonSettings.from_bytes(raw, verify=True)
+        self.assertEqual(parsed.slot(1).action, 0x02)   # Left
+        self.assertEqual(parsed.slot(3).action, 0x06)   # Forward
+        self.assertEqual(parsed.slot(4).action, 0x05)   # Backward
+        self.assertEqual(parsed.slot(15).action, 0x0B)  # Thumb wheel up/left
+        self.assertEqual(parsed.slot(16).action, 0x0C)  # Thumb wheel down/right
+        self.assertEqual(bytes(parsed.build()), raw, "Rebuilt Button report must match M618XSD factory bytes 100%!")
+
+    def test_per_app_profile_matching_and_keymap(self) -> None:
+        cfg = DriverConfig()
+        p_chrome = cfg.resolve_profile("google-chrome.desktop", "Google-chrome", "GitHub - Google Chrome")
+        self.assertEqual(p_chrome.id, "browsers")
+        self.assertEqual(p_chrome.get_binding("thumb_down").combo, "Ctrl+Tab")
+
+        p_ide = cfg.resolve_profile("antigravity-app.desktop", "Antigravity", "main.py")
+        self.assertEqual(p_ide.id, "code_ide")
+
+        p_pdf = cfg.resolve_profile("org.gnome.Evince.desktop", "evince", "manual.pdf")
+        self.assertEqual(p_pdf.id, "pdf_design")
+        self.assertEqual(p_pdf.get_binding("thumb_up").kind, "zoom")
+
+        p_loupe = cfg.resolve_profile("loupe", "图像查看器", "photo.png")
+        self.assertEqual(p_loupe.id, "pdf_design")
+
+        p_wps_pdf = cfg.resolve_profile("wps", "WPS Office", "说明书.pdf - WPS Office")
+        self.assertEqual(p_wps_pdf.id, "pdf_design")
+
+        p_wps_doc = cfg.resolve_profile("wps", "WPS Office", "报告.docx - WPS文字")
+        self.assertEqual(p_wps_doc.id, "wps_office")
+
+        macro_spec = ActionSpec(
+            kind="macro",
+            macro_steps=[{"combo": "Ctrl+C", "delay_ms": 40}, {"combo": "Ctrl+V", "delay_ms": 40}],
+        )
+        restored = ActionSpec.from_dict(macro_spec.to_dict())
+        self.assertEqual(restored.kind, "macro")
+        self.assertEqual(len(restored.macro_steps or []), 2)
+
+        self.assertEqual(parse_combo_to_evdev("Ctrl+Shift+Tab"), [29, 42, 15])
+        self.assertEqual(parse_combo_to_evdev("Ctrl+="), [29, 13])
+        self.assertEqual(parse_combo_to_evdev("Ctrl+-"), [29, 12])
+        self.assertEqual(parse_combo_to_evdev("Super+PageUp"), [125, 104])
+
+    def test_daemon_gesture_never_freezes_cursor_on_dropped_release(self) -> None:
+        import time
+        from delux_m618xsd.daemon.engine import SmartMouseDaemon
+        from delux_m618xsd.daemon.linux_input import BTN_LEFT, BTN_SIDE, EV_KEY, EV_REL, EV_SYN, REL_X
+
+        emitted: list[list[tuple[int, int, int]]] = []
+        daemon = SmartMouseDaemon()
+        daemon.virtual.emit_mouse = lambda evs, sync=True: emitted.append(list(evs))  # type: ignore[method-assign]
+        daemon.virtual.emit_key_combo = lambda codes: None  # type: ignore[method-assign]
+
+        # Simulate BTN_SIDE pressed (value=1) with NO release (dropped 2.4G packet)
+        daemon._process_batch_safe([(EV_KEY, BTN_SIDE, 1), (EV_SYN, 0, 0)])
+        self.assertIsNotNone(daemon._gesture)
+
+        # Age gesture past 0.50s and verify REL_X passes through freely without freezing
+        daemon._gesture.started_at = time.monotonic() - 0.55
+        emitted.clear()
+        daemon._process_batch_safe([(EV_REL, REL_X, 18), (EV_SYN, 0, 0)])
+        self.assertTrue(any(c == REL_X and v == 18 for batch in emitted for (_, c, v) in batch))
+
+        # Left click immediately cancels any stuck gesture state
+        daemon._process_batch_safe([(EV_KEY, BTN_LEFT, 1), (EV_SYN, 0, 0)])
+        self.assertIsNone(daemon._gesture)
+
+        # Verify passive battery report 0x03 decoding
+        bat = hp.decode_interrupt_event(bytes.fromhex("0328400149"))
+        self.assertIsInstance(bat, hp.BatteryEvent)
+        self.assertEqual(bat.percent, 73)
+
+    def test_live_hardware_readonly_session(self) -> None:
+        from delux_m618xsd.hardware.session import SessionError
+
+        nodes = list_m618xsd_nodes()
+        if not nodes or not nodes[0].accessible:
+            self.skipTest("M618XSD node not currently accessible")
+        try:
+            with M618XSDSession() as session:
+                dpi = session.read_dpi()
+                light = session.read_lighting()
+                poll = session.read_polling()
+                self.assertIn(poll.hz, (125, 250, 500, 1000))
+                self.assertTrue(400 <= dpi.dpi[0] <= 4000)
+                self.assertTrue(1 <= light.brightness <= 8)
+        except SessionError as exc:
+            self.skipTest(f"M618XSD wireless mouse currently in sleep mode: {exc}")
+
+
+if __name__ == "__main__":
+    unittest.main(verbosity=2)
