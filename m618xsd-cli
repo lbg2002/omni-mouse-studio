@@ -72,7 +72,7 @@ def cmd_status(args: argparse.Namespace) -> int:
             "model": "inphic_w1",
             "node": node.path if node else None,
             "accessible": bool(node and node.accessible),
-            "firmware": f"{node.product_name} ({node.vid:04x}:{node.pid:04x})" if node else "Inphic W1 (未连接)",
+            "firmware": f"{node.name} ({node.vid:04x}:{node.pid:04x})" if node else "Inphic W1 (未连接)",
             "polling": {"hz": 125},
             "dpi": st.to_dpi_dict(),
             "lighting": st.to_lighting_dict(),
