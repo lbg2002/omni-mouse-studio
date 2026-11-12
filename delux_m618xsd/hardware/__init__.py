@@ -1,6 +1,16 @@
-"""Hardware communication layer for Delux M618XSD (/dev/hidraw)."""
+"""Hardware communication layer for Delux M618XSD & Inphic W1 (/dev/hidraw)."""
 
 from .hidraw import HidrawDevice, HidrawError, HidrawNode, enumerate_hidraw
+from .inphic_w1 import (
+    INPHIC_FIRMWARE_ACTIONS,
+    INPHIC_LIGHT_MODES,
+    INPHIC_SLOTS,
+    InphicCpiEvent,
+    InphicW1Session,
+    InphicW1State,
+    find_inphic_w1_node,
+    list_inphic_w1_nodes,
+)
 from .protocol import (
     BatteryEvent,
     ButtonSettings,
@@ -28,6 +38,12 @@ __all__ = [
     "HidrawDevice",
     "HidrawError",
     "HidrawNode",
+    "INPHIC_FIRMWARE_ACTIONS",
+    "INPHIC_LIGHT_MODES",
+    "INPHIC_SLOTS",
+    "InphicCpiEvent",
+    "InphicW1Session",
+    "InphicW1State",
     "LIGHT_MODES",
     "LightingSettings",
     "M618XSDSession",
@@ -38,6 +54,8 @@ __all__ = [
     "ProfileSettings",
     "SessionError",
     "enumerate_hidraw",
+    "find_inphic_w1_node",
     "find_m618xsd_node",
+    "list_inphic_w1_nodes",
     "list_m618xsd_nodes",
 ]

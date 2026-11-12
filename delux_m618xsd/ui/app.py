@@ -48,11 +48,11 @@ class M618XSDStudioApp(Gtk.Application):
             settings.set_property("gtk-application-prefer-dark-theme", True)
 
         GLib.set_prgname("delux-m618xsd-studio")
-        GLib.set_application_name("Delux M618XSD Control Center")
+        GLib.set_application_name("Linux 多功能鼠标智控中心")
 
         win = Gtk.ApplicationWindow(
             application=self,
-            title="DELUX M618XSD // LINUX HARDWARE CONTROL CENTER",
+            title="LINUX SMART MOUSE STUDIO // DELUX M618XSD & INPHIC W1",
         )
         win.set_default_size(1300, 820)
         win.set_size_request(980, 640)
@@ -97,6 +97,10 @@ class M618XSDStudioApp(Gtk.Application):
         webview.set_settings(wk_settings)
         webview.set_background_color(Gdk.RGBA(0.035, 0.043, 0.055, 1.0))
         webview.connect("context-menu", lambda *_args: True)
+        webview.connect(
+            "notify::title",
+            lambda wv, _pspec: win.set_title(wv.get_title() or "LINUX SMART MOUSE STUDIO"),
+        )
         webview.load_uri(self.url)
 
         win.add(webview)

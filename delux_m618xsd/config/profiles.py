@@ -389,6 +389,7 @@ def build_default_profiles() -> list[AppProfile]:
 class DriverConfig:
     daemon_enabled: bool = True
     per_app_enabled: bool = True
+    preferred_model: str = "auto"
     profiles: list[AppProfile] = field(default_factory=build_default_profiles)
 
     @property
@@ -409,9 +410,10 @@ class DriverConfig:
 
     def to_dict(self) -> dict[str, Any]:
         return {
-            "version": 1,
+            "version": 2,
             "daemon_enabled": self.daemon_enabled,
             "per_app_enabled": self.per_app_enabled,
+            "preferred_model": self.preferred_model,
             "profiles": [p.to_dict() for p in self.profiles],
         }
 
@@ -421,9 +423,13 @@ class DriverConfig:
         profs = [AppProfile.from_dict(item) for item in raw_profs] if raw_profs else build_default_profiles()
         if not any(p.is_global for p in profs):
             profs.insert(0, build_default_profiles()[0])
+        pref = str(data.get("preferred_model", "auto") or "auto")
+        if pref not in ("auto", "delux_m618xsd", "inphic_w1"):
+            pref = "auto"
         return cls(
             daemon_enabled=bool(data.get("daemon_enabled", True)),
             per_app_enabled=bool(data.get("per_app_enabled", True)),
+            preferred_model=pref,
             profiles=profs,
         )
 

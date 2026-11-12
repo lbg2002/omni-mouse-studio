@@ -24,18 +24,18 @@ if [ -n "${TARGET_USER}" ]; then
     fi
     for h in /sys/class/hidraw/hidraw*; do
         [ -e "${h}/device/uevent" ] || continue
-        if grep -qi "00001D57" "${h}/device/uevent"; then
+        if grep -Eqi "00001D57|000030FA|000018F8" "${h}/device/uevent"; then
             dev="/dev/$(basename "${h}")"
             [ -e "${dev}" ] && setfacl -m "u:${TARGET_USER}:rw" "${dev}" || true
         fi
     done
     for ev in /sys/class/input/event*; do
         [ -e "${ev}/device/uevent" ] || continue
-        if grep -qi "1D57" "${ev}/device/uevent" || grep -qi "LXDDZ" "${ev}/device/uevent"; then
+        if grep -Eqi "1D57|30FA|18F8|LXDDZ|INSTANT|INPHIC" "${ev}/device/uevent"; then
             dev="/dev/input/$(basename "${ev}")"
             [ -e "${dev}" ] && setfacl -m "u:${TARGET_USER}:rw" "${dev}" || true
         fi
     done
 fi
 
-echo "Delux M618XSD udev rules installed and applied successfully."
+echo "Multi-mouse (Delux M618XSD & Inphic W1) udev rules installed and applied successfully."

@@ -615,6 +615,289 @@
     };
   }
 
+  /* ===========================================================================
+   * Procedural 3D Model of Inphic W1 Wired Gaming Mouse (Instant A704)
+   * Matches User Reference Renders 1 (Top), 2 (Front-Left Side), 3 (Rear-Angle):
+   *   - Gunmetal anodized V-split left/right primary click plates + faceted spine
+   *   - Glossy black central spine channel with diamond CPI switch + braided USB cable
+   *   - Glowing dual-ring ridged scroll wheel + glowing 'in' circular palm emblem
+   *   - Sculpted left thumb wing with 5 diagonal vents + Forward / Backward buttons
+   *   - Right ergonomic ring-finger rest flare
+   * =========================================================================== */
+  function evalInphicW1HalfWidth(z, sideSign, hFrac) {
+    // z in [-0.96 (front nose), +0.98 (rear tail)], sideSign: -1 = Left (-X), +1 = Right (+X)
+    const zn = clamp((z + 0.96) / 1.94, 0, 1); // 0 = front, 1 = rear tail
+    let baseW = 0.46 * Math.sin(Math.pow(zn, 0.72) * Math.PI * 0.94) + 0.22 * (1 - zn);
+    baseW *= 1.0 - 0.55 * smoothstep(0.76, 1.0, zn);
+
+    if (sideSign < 0) {
+      // Left thumb wing flare (zn ~ 0.36..0.76, lower skirt hFrac < 0.45)
+      const wingZ = Math.exp(-Math.pow((zn - 0.55) / 0.20, 2));
+      const wingLow = Math.pow(clamp(1.0 - hFrac * 1.55, 0, 1), 1.3);
+      baseW += 0.22 * wingZ * wingLow;
+      // Upper thumb waist scoop
+      baseW -= 0.045 * Math.exp(-Math.pow((zn - 0.44) / 0.18, 2)) * smoothstep(0.25, 0.85, hFrac);
+    } else {
+      // Right ring-finger ergonomic ledge (zn ~ 0.34..0.66)
+      const ledgeZ = Math.exp(-Math.pow((zn - 0.47) / 0.17, 2));
+      const ledgeMid = Math.sin(clamp(hFrac * 1.25, 0, 1) * Math.PI);
+      baseW += 0.115 * ledgeZ * ledgeMid;
+    }
+    return Math.max(0.08, baseW);
+  }
+
+  function evalInphicW1TopHeight(z, xAbsNorm) {
+    const zn = clamp((z + 0.96) / 1.94, 0, 1);
+    // Low front nose (0.21), arched mid-hump at zn=0.52 (0.56), tapering to low tail (0.10)
+    const arch = 0.18 + 0.41 * Math.sin(Math.pow(zn, 0.84) * Math.PI * 0.96) * (1 - 0.18 * zn);
+    // Faceted center spine ridge on rear shell + subtle transverse curvature
+    const centerRidge = 0.024 * smoothstep(0.38, 0.78, zn) * (1.0 - smoothstep(0.0, 0.45, xAbsNorm));
+    const falloff = 0.14 * Math.pow(xAbsNorm, 1.85);
+    return Math.max(0.06, arch + centerRidge - falloff);
+  }
+
+  function evalInphicW1Surface(u, v) {
+    // v in [0 (bottom base), 1 (top centerline)]; u in [0..1] around perimeter
+    const th = u * TAU;
+    const c = Math.cos(th); // +1 = Right (+X), -1 = Left (-X)
+    const s = Math.sin(th); // +1 = Rear (+Z), -1 = Front (-Z)
+
+    // Map (c, s, v) onto dorsal/flank shell coordinates
+    const radial = 1.0 - smoothstep(0.32, 1.0, v);
+    const z = clamp(0.01 + 0.97 * s * (0.35 + 0.65 * (1.0 - 0.72 * Math.pow(v, 2.2))) + (v > 0.32 ? s * 0.62 * smoothstep(0.32, 0.98, v) * 0.0 : 0.0), -0.96, 0.98);
+    // Better parameterization: rows = longitudinal Z slices, cols = cross-section arch from bottom-left -> top -> bottom-right!
+    return [c * radial, v * 0.5, z];
+  }
+
+  function buildInphicW1Geometry() {
+    const mb = new MeshBuilder();
+
+    const GUNMETAL = [0.27, 0.30, 0.35];
+    const GUNMETAL_LIGHT = [0.33, 0.36, 0.42];
+    const MATTE_BLACK = [0.065, 0.075, 0.095];
+    const GLOSS_BLACK = [0.03, 0.035, 0.048];
+    const SEAM_DARK = [0.018, 0.022, 0.032];
+
+    // =========================================================================
+    // 1. Main Armored Gaming Shell (Longitudinal Z-rows x Cross-sectional Arch)
+    // =========================================================================
+    const zRows = 56;
+    const xCols = 65; // col 0 = bottom-left base, col 32 = top center spine, col 64 = bottom-right base
+    const bodyPts = [];
+
+    for (let r = 0; r < zRows; r++) {
+      const rv = r / (zRows - 1);
+      const z = -0.96 + rv * 1.94; // -0.96 (front nose) -> +0.98 (rear tail)
+      for (let c = 0; c < xCols; c++) {
+        const sNorm = (c / (xCols - 1)) * 2.0 - 1.0; // -1 (left base) .. 0 (top spine) .. +1 (right base)
+        const sideSign = sNorm < 0 ? -1 : 1;
+        const absS = Math.abs(sNorm);
+
+        let xFrac, hFrac;
+        if (absS <= 0.62) {
+          // Dorsal top surface (0 .. 0.62 -> xFrac 0 .. 1)
+          xFrac = absS / 0.62;
+          hFrac = 1.0 - 0.32 * Math.pow(xFrac, 1.8);
+        } else {
+          // Sidewall skirt curving down to flat mouse skates (0.62 .. 1.0)
+          const st = (absS - 0.62) / 0.38;
+          hFrac = (1.0 - st) * 0.68;
+          xFrac = 1.0 - 0.10 * st * st;
+        }
+
+        const halfW = evalInphicW1HalfWidth(z, sideSign, hFrac);
+        const topY = evalInphicW1TopHeight(z, xFrac);
+        let x = sideSign * halfW * xFrac;
+        let y = 0.035 + (topY - 0.035) * smoothstep(0.0, 0.92, hFrac);
+
+        // Central recessed spine channel on front half (z < 0.02, |x| < 0.095)
+        if (z < 0.04 && Math.abs(x) < 0.098 && absS < 0.25) {
+          const chMask = (1.0 - smoothstep(0.065, 0.098, Math.abs(x))) * (1.0 - smoothstep(-0.04, 0.04, z));
+          y -= 0.038 * chMask;
+        }
+
+        // 5 Diagonal recessed thumb vents on left flank (Photo 2 & 3!)
+        if (sideSign < 0 && absS > 0.56 && absS < 0.90 && z > -0.44 && z < 0.34) {
+          const diagCoord = z + y * 0.58;
+          for (let vi = 0; vi < 5; vi++) {
+            const vc = -0.26 + vi * 0.135;
+            const ventMask =
+              Math.exp(-Math.pow((diagCoord - vc) / 0.026, 2)) *
+              smoothstep(0.58, 0.66, absS) *
+              (1.0 - smoothstep(0.82, 0.90, absS));
+            x += 0.026 * ventMask;
+          }
+        }
+
+        bodyPts.push([x, y, z]);
+      }
+    }
+
+    mb.addGrid(
+      bodyPts,
+      zRows,
+      xCols,
+      false,
+      (u, v, p) => {
+        const x = p[0], y = p[1], z = p[2];
+        const absX = Math.abs(x);
+        // Glossy black center spine channel
+        if (z < 0.03 - absX * 0.55 && absX < 0.096 && y > 0.16) {
+          return GLOSS_BLACK;
+        }
+        // V-shaped armor plate split seam (angles from outer front-mid z=-0.30 inward to center V-tip z=+0.01)
+        const vSeamZ = 0.01 - absX * 0.56;
+        if (absX > 0.085 && absX < 0.52 && Math.abs(z - vSeamZ) < 0.014 && y > 0.18) {
+          return SEAM_DARK;
+        }
+        // Outer side skirts & ergonomic wings (matte black)
+        if (Math.abs(u - 0.5) > 0.28) {
+          // Highlight the 5 left thumb vent grooves darkly
+          if (x < -0.35 && z > -0.44 && z < 0.34) {
+            const diagCoord = z + y * 0.58;
+            for (let vi = 0; vi < 5; vi++) {
+              if (Math.abs(diagCoord - (-0.26 + vi * 0.135)) < 0.020 && y > 0.09 && y < 0.28) {
+                return SEAM_DARK;
+              }
+            }
+          }
+          return MATTE_BLACK;
+        }
+        // Front L/R gunmetal click plates vs rear faceted gunmetal palm armor
+        if (z < vSeamZ) {
+          return x < 0 ? GUNMETAL_LIGHT : GUNMETAL;
+        }
+        return x < 0 ? GUNMETAL_LIGHT : GUNMETAL;
+      },
+      0.0,
+      (u, v, p) => {
+        const x = p[0], z = p[2];
+        if (Math.abs(u - 0.5) < 0.27 && z < 0.01 - Math.abs(x) * 0.56) {
+          return x < 0 ? 11.0 : 12.0; // Left / Right click plates
+        }
+        return 0.0;
+      }
+    );
+
+    // =========================================================================
+    // 2. Braided USB Cable Stub + Strain Relief at Front Nose (-Z)
+    // =========================================================================
+    mb.addEllipsoid([0.0, 0.14, -0.98], [0.048, 0.044, 0.09], [0, 0, 0], GLOSS_BLACK, 2.0, 0.0, 18, 12);
+    const cableRows = 12, cableCols = 16;
+    const cablePts = [];
+    for (let r = 0; r < cableRows; r++) {
+      const t = r / (cableRows - 1);
+      const cz = -1.02 - t * 0.58;
+      const cx = -0.05 * t * t;
+      const cy = 0.135 - 0.03 * Math.sin(t * Math.PI * 0.8);
+      const rad = 0.026;
+      for (let c = 0; c < cableCols; c++) {
+        const ang = (c / cableCols) * TAU;
+        cablePts.push([cx + rad * Math.cos(ang), cy + rad * Math.sin(ang), cz]);
+      }
+    }
+    mb.addGrid(cablePts, cableRows, cableCols, true, () => MATTE_BLACK, 0.0, () => 0.0);
+
+    // =========================================================================
+    // 3. Glowing Ridged Scroll Wheel + Dual Translucent LED Rings (z = -0.54)
+    // =========================================================================
+    const wheelY = 0.365;
+    const wheelZ = -0.54;
+    // Center ribbed dark rubber tire
+    mb.addEllipsoid([0.0, wheelY, wheelZ], [0.046, 0.135, 0.135], [0, 0, 0], [0.07, 0.09, 0.13], 2.1, 17.0, 28, 18);
+    // Left & right glowing translucent LED wheel rims (matId = 3.0 -> live LED glow!)
+    mb.addEllipsoid([-0.048, wheelY, wheelZ], [0.014, 0.126, 0.126], [0, 0, 0], [0.2, 0.9, 1.0], 3.0, 0.15, 24, 14);
+    mb.addEllipsoid([0.048, wheelY, wheelZ], [0.014, 0.126, 0.126], [0, 0, 0], [0.2, 0.9, 1.0], 3.0, 0.15, 24, 14);
+
+    // =========================================================================
+    // 4. Central Diamond 'CPI' Hardware Switch (z = -0.17, matId = 4.0)
+    // =========================================================================
+    const cpiRows = 7, cpiCols = 7;
+    const cpiPts = [];
+    for (let r = 0; r < cpiRows; r++) {
+      const rv = r / (cpiRows - 1); // 0 = front, 1 = rear
+      const z = -0.25 + rv * 0.17;
+      const diamondTaper = 1.0 - 0.55 * Math.abs(rv - 0.45) * 1.4;
+      for (let c = 0; c < cpiCols; c++) {
+        const cu = c / (cpiCols - 1) - 0.5;
+        const x = cu * 0.115 * Math.max(0.25, diamondTaper);
+        const y = evalInphicW1TopHeight(z, Math.abs(x) / 0.5) + 0.006;
+        cpiPts.push([x, y, z]);
+      }
+    }
+    mb.addGrid(cpiPts, cpiRows, cpiCols, false, () => GLOSS_BLACK, 4.0, () => 16.0);
+
+    // =========================================================================
+    // 5. Left Side Forward & Backward Multi-Function Buttons (-X Ridge)
+    // =========================================================================
+    // Forward button (front-left, BTN_EXTRA)
+    mb.addEllipsoid(
+      [-0.485, 0.315, -0.31],
+      [0.032, 0.036, 0.115],
+      [0.04, 0.13, -0.22],
+      GLOSS_BLACK,
+      2.0,
+      13.0,
+      22,
+      14
+    );
+    // Backward button (mid-left, BTN_SIDE)
+    mb.addEllipsoid(
+      [-0.505, 0.325, -0.05],
+      [0.032, 0.036, 0.115],
+      [-0.05, 0.02, -0.22],
+      GLOSS_BLACK,
+      2.0,
+      14.0,
+      22,
+      14
+    );
+
+    // =========================================================================
+    // 6. Glowing Circular 'in' Palm Emblem on Rear Armor (z = +0.47, matId = 7.0)
+    // =========================================================================
+    const embRows = 12, embCols = 12;
+    const embPts = [];
+    for (let r = 0; r < embRows; r++) {
+      const rv = r / (embRows - 1);
+      const z = 0.34 + rv * 0.25;
+      for (let c = 0; c < embCols; c++) {
+        const cu = c / (embCols - 1) - 0.5;
+        const x = cu * 0.25;
+        const halfW = evalInphicW1HalfWidth(z, x < 0 ? -1 : 1, 0.9);
+        const y = evalInphicW1TopHeight(z, Math.abs(x) / halfW) + 0.006;
+        embPts.push([x, y, z]);
+      }
+    }
+    mb.addGrid(embPts, embRows, embCols, false, () => [0.2, 0.95, 1.0], 7.0, () => 3.0);
+
+    // =========================================================================
+    // 7. Technical Calibration Ring on Floor (matId = 6.0)
+    // =========================================================================
+    const pRingPts = [];
+    const pRingCols = 72;
+    for (let r = 0; r < 2; r++) {
+      const rad = r === 0 ? 1.16 : 1.40;
+      for (let c = 0; c < pRingCols; c++) {
+        const th = (c / pRingCols) * TAU;
+        pRingPts.push([rad * Math.cos(th), -0.01, rad * Math.sin(th)]);
+      }
+    }
+    mb.addGrid(pRingPts, 2, pRingCols, true, () => [0.0, 0.82, 1.0], 6.0, () => 0.0);
+
+    return {
+      vertices: new Float32Array(mb.verts),
+      indices: new Uint32Array(mb.indices),
+      anchors: {
+        forward: { p: [-0.52, 0.33, -0.32], n: [-0.90, 0.30, -0.20] },
+        backward: { p: [-0.54, 0.34, -0.04], n: [-0.92, 0.30, 0.05] },
+        oled_dpi: { p: [0.0, 0.52, -0.17], n: [0.0, 0.95, -0.20] },
+        main_wheel: { p: [0.04, 0.48, -0.54], n: [0.20, 0.88, -0.42] },
+        honeycomb_rgb: { p: [0.0, 0.42, 0.47], n: [0.0, 0.82, 0.56] },
+      },
+    };
+  }
+
   const VS_SRC = `
     attribute vec3 aPos;
     attribute vec3 aNorm;
@@ -681,8 +964,22 @@
     }
 
     vec3 evalHoneycombGlow(float phase) {
+      // Inphic W1 hardware modes: 0x10..0x17 (16..23)
+      if (abs(uRgbMode - 23.0) < 0.4) {
+        return vec3(0.08, 0.11, 0.16);
+      }
+      if (uRgbMode > 15.5 && uRgbMode < 22.5) {
+        if (abs(uRgbMode - 22.0) < 0.4) {
+          return uRgbColor * (0.45 + 1.25 * uRgbBright);
+        }
+        float period = max(1.0, 22.0 - uRgbMode); // 0x10->6s, 0x11->5s, 0x12->4s, 0x13->3s, 0x14->2s, 0x15->1s
+        float cyc = uTime * (6.2831853 / period);
+        float pulse = 0.16 + 0.84 * (0.5 + 0.5 * sin(cyc - phase * 1.4));
+        vec3 cycCol = mix(uRgbColor, hsv2rgb(vec3(fract(uTime / (period * 4.0) + phase * 0.15), 0.82, 1.0)), 0.35);
+        return cycCol * (0.28 + 1.40 * uRgbBright * pulse);
+      }
       if (uRgbMode < 0.5 || uRgbBright <= 0.02) {
-        return vec3(0.30, 0.80, 0.88);
+        return vec3(0.10, 0.16, 0.22);
       }
       float spd = 0.45 + uRgbSpeed * 0.32;
       vec3 base = uRgbColor;
@@ -770,6 +1067,14 @@
         return;
       }
 
+      if (abs(vMat - 7.0) < 0.3) {
+        vec4 mask = texture2D(uLogoTex, vec2(vUv.x, vUv.y));
+        if (mask.a < 0.06) discard;
+        vec3 led = evalHoneycombGlow(0.0);
+        gl_FragColor = vec4(led * (0.45 + 0.85 * mask.a), mask.a);
+        return;
+      }
+
       vec3 H1 = normalize(L1 + V);
       vec3 H2 = normalize(L2 + V);
       float spec1 = pow(max(dot(N, H1), 0.0), shininess);
@@ -808,8 +1113,8 @@
       this.canvas = canvas;
       this.overlayEl = overlayEl;
       this.onHotspotClick = onHotspotClick;
+      this.modelKey = "delux_m618xsd";
 
-      // yaw=0 is directly behind (+Z); yaw=+0.78 is Right-Rear 3/4 matching Factory Photo 1!
       this.yaw = 0.78;
       this.pitch = 0.26;
       this.distance = 5.10;
@@ -836,9 +1141,11 @@
       if (!this.gl) return;
       this.gl.getExtension("OES_element_index_uint");
 
+      this._geomCache = {};
       this._initShaders();
-      this._initGeometry();
+      this._initBuffers();
       this._initTextures();
+      this._uploadModelGeometry("delux_m618xsd");
       this._initHotspots();
       this._bindEvents();
 
@@ -879,17 +1186,26 @@
       };
     }
 
-    _initGeometry() {
+    _initBuffers() {
       const gl = this.gl;
-      const geom = buildM618XSDGeometry();
+      this.vbo = gl.createBuffer();
+      this.ibo = gl.createBuffer();
+    }
+
+    _uploadModelGeometry(modelKey) {
+      const gl = this.gl;
+      if (!gl) return;
+      if (!this._geomCache[modelKey]) {
+        this._geomCache[modelKey] =
+          modelKey === "inphic_w1" ? buildInphicW1Geometry() : buildM618XSDGeometry();
+      }
+      const geom = this._geomCache[modelKey];
       this.anchors = geom.anchors;
       this.indexCount = geom.indices.length;
 
-      this.vbo = gl.createBuffer();
       gl.bindBuffer(gl.ARRAY_BUFFER, this.vbo);
       gl.bufferData(gl.ARRAY_BUFFER, geom.vertices, gl.STATIC_DRAW);
 
-      this.ibo = gl.createBuffer();
       gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, this.ibo);
       gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, geom.indices, gl.STATIC_DRAW);
     }
@@ -905,59 +1221,123 @@
       gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
       gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
       gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
-      this._redrawOledTexture();
 
-      const lc = document.createElement("canvas");
-      lc.width = 256;
-      lc.height = 64;
-      const lctx = lc.getContext("2d");
-      lctx.clearRect(0, 0, 256, 64);
-      lctx.fillStyle = "#ffffff";
-      lctx.font = "900 38px 'Inter', 'Noto Sans CJK SC', sans-serif";
-      lctx.textAlign = "center";
-      lctx.textBaseline = "middle";
-      lctx.fillText("DELUX", 128, 34);
-
+      this.logoCanvas = document.createElement("canvas");
       this.logoTex = gl.createTexture();
       gl.bindTexture(gl.TEXTURE_2D, this.logoTex);
       gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
       gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
       gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
       gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
-      gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, lc);
+
+      this._redrawOledTexture();
+      this._redrawLogoTexture();
+    }
+
+    _redrawLogoTexture() {
+      if (!this.gl || !this.logoCanvas) return;
+      const gl = this.gl;
+      if (this.modelKey === "inphic_w1") {
+        // Draw Inphic circular 'in' illuminated emblem (256x256)
+        this.logoCanvas.width = 256;
+        this.logoCanvas.height = 256;
+        const ctx = this.logoCanvas.getContext("2d");
+        ctx.clearRect(0, 0, 256, 256);
+
+        ctx.shadowColor = "rgba(255, 255, 255, 0.85)";
+        ctx.shadowBlur = 12;
+        ctx.strokeStyle = "#ffffff";
+        ctx.fillStyle = "#ffffff";
+        ctx.lineCap = "round";
+        ctx.lineJoin = "round";
+
+        // Left-side 'i' dot + vertical stem curving into outer left arc
+        ctx.lineWidth = 17;
+        ctx.beginPath();
+        ctx.arc(90, 96, 10, 0, TAU);
+        ctx.fill();
+
+        ctx.beginPath();
+        ctx.moveTo(90, 128);
+        ctx.lineTo(90, 184);
+        ctx.arc(128, 128, 72, Math.PI * 0.68, Math.PI * 1.24, false);
+        ctx.stroke();
+
+        // Right-side 'n' vertical stem + arch curving into outer right ring
+        ctx.beginPath();
+        ctx.moveTo(126, 200);
+        ctx.lineTo(126, 72);
+        ctx.arc(128, 128, 72, -Math.PI * 0.48, Math.PI * 0.36, false);
+        ctx.stroke();
+
+        ctx.beginPath();
+        ctx.moveTo(162, 184);
+        ctx.lineTo(162, 118);
+        ctx.arc(144, 118, 18, 0, Math.PI, true);
+        ctx.stroke();
+      } else {
+        this.logoCanvas.width = 256;
+        this.logoCanvas.height = 64;
+        const lctx = this.logoCanvas.getContext("2d");
+        lctx.clearRect(0, 0, 256, 64);
+        lctx.fillStyle = "#ffffff";
+        lctx.font = "900 38px 'Inter', 'Noto Sans CJK SC', sans-serif";
+        lctx.textAlign = "center";
+        lctx.textBaseline = "middle";
+        lctx.fillText("DELUX", 128, 34);
+      }
+      gl.bindTexture(gl.TEXTURE_2D, this.logoTex);
+      gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, this.logoCanvas);
     }
 
     _redrawOledTexture() {
       if (!this.gl || !this.oledCanvas) return;
       const ctx = this.oledCanvas.getContext("2d");
       const w = this.oledCanvas.width, h = this.oledCanvas.height;
-      ctx.fillStyle = "#02050a";
-      ctx.fillRect(0, 0, w, h);
 
-      ctx.strokeStyle = "rgba(0, 200, 255, 0.25)";
-      ctx.lineWidth = 2;
-      ctx.strokeRect(8, 8, w - 16, h - 16);
+      if (this.modelKey === "inphic_w1") {
+        // Engraved diamond 'CPI' hardware switch top cap
+        ctx.fillStyle = "#080b11";
+        ctx.fillRect(0, 0, w, h);
+        ctx.strokeStyle = "rgba(180, 200, 225, 0.25)";
+        ctx.lineWidth = 3;
+        ctx.strokeRect(8, 8, w - 16, h - 16);
+        ctx.fillStyle = "#aebdcb";
+        ctx.font = "800 38px 'Inter', 'JetBrains Mono', sans-serif";
+        ctx.textAlign = "center";
+        ctx.textBaseline = "middle";
+        ctx.fillText("CPI", w / 2, h / 2 + 2);
+        ctx.textAlign = "start";
+        ctx.textBaseline = "alphabetic";
+      } else {
+        ctx.fillStyle = "#02050a";
+        ctx.fillRect(0, 0, w, h);
 
-      ctx.fillStyle = "#8be9ff";
-      ctx.font = "bold 15px 'JetBrains Mono', monospace";
-      ctx.fillText("2.4G", 18, 28);
+        ctx.strokeStyle = "rgba(0, 200, 255, 0.25)";
+        ctx.lineWidth = 2;
+        ctx.strokeRect(8, 8, w - 16, h - 16);
 
-      const hasBat = typeof this.state.battery === "number";
-      const bat = hasBat ? clamp(Math.round(this.state.battery), 0, 100) : 100;
-      ctx.fillStyle = "#e6faff";
-      ctx.fillText(hasBat ? bat + "%" : "SYNC", 150, 28);
-      ctx.strokeStyle = "#8be9ff";
-      ctx.strokeRect(204, 15, 32, 14);
-      ctx.fillStyle = bat > 20 ? "#00e5a3" : "#ff4d6d";
-      ctx.fillRect(206, 17, Math.round(28 * (bat / 100)), 10);
+        ctx.fillStyle = "#8be9ff";
+        ctx.font = "bold 15px 'JetBrains Mono', monospace";
+        ctx.fillText("2.4G", 18, 28);
 
-      ctx.fillStyle = "#ffffff";
-      ctx.font = "900 24px 'JetBrains Mono', monospace";
-      ctx.fillText("DPI:" + (this.state.dpi || 1200), 18, 57);
+        const hasBat = typeof this.state.battery === "number";
+        const bat = hasBat ? clamp(Math.round(this.state.battery), 0, 100) : 100;
+        ctx.fillStyle = "#e6faff";
+        ctx.fillText(hasBat ? bat + "%" : "SYNC", 150, 28);
+        ctx.strokeStyle = "#8be9ff";
+        ctx.strokeRect(204, 15, 32, 14);
+        ctx.fillStyle = bat > 20 ? "#00e5a3" : "#ff4d6d";
+        ctx.fillRect(206, 17, Math.round(28 * (bat / 100)), 10);
 
-      ctx.fillStyle = "#62d8ff";
-      ctx.font = "bold 15px 'JetBrains Mono', monospace";
-      ctx.fillText("MODE:2.4G  " + (this.state.hz || 250) + "Hz", 18, 80);
+        ctx.fillStyle = "#ffffff";
+        ctx.font = "900 24px 'JetBrains Mono', monospace";
+        ctx.fillText("DPI:" + (this.state.dpi || 1200), 18, 57);
+
+        ctx.fillStyle = "#62d8ff";
+        ctx.font = "bold 15px 'JetBrains Mono', monospace";
+        ctx.fillText("MODE:2.4G  " + (this.state.hz || 250) + "Hz", 18, 80);
+      }
 
       const gl = this.gl;
       gl.bindTexture(gl.TEXTURE_2D, this.oledTex);
@@ -965,13 +1345,23 @@
     }
 
     _initHotspots() {
-      this.hotspotDefs = [
-        { id: "thumb_wheel", zone: 15, title: "左侧拇指滚轮", sub: "标签切换 / 页面缩放", nav: "bindings" },
-        { id: "backward", zone: 14, title: "左侧前进 / 后退键", sub: "前后退 / 按住四向手势", nav: "bindings" },
-        { id: "oled_dpi", zone: 16, title: "顶部 OLED 与 DPI 键", sub: "400 - 4000 DPI", nav: "dpi" },
-        { id: "main_wheel", zone: 17, title: "右侧垂直主滚轮", sub: "左/右键与滚轮中键", nav: "bindings" },
-        { id: "honeycomb_rgb", zone: 3, title: "尾部蜂巢背光区", sub: "8 种板载灯光模式", nav: "rgb" },
-      ];
+      if (this.modelKey === "inphic_w1") {
+        this.hotspotDefs = [
+          { id: "forward", zone: 13, title: "前进侧键 (Forward)", sub: "支持按住+滚轮虚拟侧轮", nav: "bindings" },
+          { id: "backward", zone: 14, title: "后退侧键 (Backward)", sub: "按住四向滑动手势 / 宏", nav: "bindings" },
+          { id: "oled_dpi", zone: 16, title: "顶部 CPI 硬件切换键", sub: "4 档 800 - 4800 CPI", nav: "dpi" },
+          { id: "main_wheel", zone: 17, title: "发光防滑主滚轮与中键", sub: "中键自定义 / 组合弦缩放", nav: "bindings" },
+          { id: "honeycomb_rgb", zone: 3, title: "尾部 IN 信仰呼吸灯", sub: "8 种硬件呼吸/常亮/关闭", nav: "rgb" },
+        ];
+      } else {
+        this.hotspotDefs = [
+          { id: "thumb_wheel", zone: 15, title: "左侧拇指滚轮", sub: "标签切换 / 页面缩放", nav: "bindings" },
+          { id: "backward", zone: 14, title: "左侧前进 / 后退键", sub: "前后退 / 按住四向手势", nav: "bindings" },
+          { id: "oled_dpi", zone: 16, title: "顶部 OLED 与 DPI 键", sub: "400 - 4000 DPI", nav: "dpi" },
+          { id: "main_wheel", zone: 17, title: "右侧垂直主滚轮", sub: "左/右键与滚轮中键", nav: "bindings" },
+          { id: "honeycomb_rgb", zone: 3, title: "尾部蜂巢背光区", sub: "8 种板载灯光模式", nav: "rgb" },
+        ];
+      }
       this.hotspotNodes = {};
       if (!this.overlayEl) return;
       this.overlayEl.innerHTML = "";
@@ -989,6 +1379,18 @@
         this.overlayEl.appendChild(el);
         this.hotspotNodes[h.id] = el;
       }
+    }
+
+    setModel(modelKey) {
+      const nextModel = modelKey === "inphic_w1" ? "inphic_w1" : "delux_m618xsd";
+      if (nextModel === this.modelKey) return;
+      this.modelKey = nextModel;
+      this.hoverZone = 0;
+      this._uploadModelGeometry(nextModel);
+      this._redrawOledTexture();
+      this._redrawLogoTexture();
+      this._initHotspots();
+      this.setCameraPreset("hero");
     }
 
     _bindEvents() {
@@ -1016,7 +1418,7 @@
       c.addEventListener("pointercancel", stopDrag);
       c.addEventListener("wheel", (e) => {
         e.preventDefault();
-        this.targetDistance = clamp(this.targetDistance + (e.deltaY > 0 ? 0.28 : -0.28), 3.2, 7.2);
+        this.targetDistance = clamp(this.targetDistance + (e.deltaY > 0 ? 0.28 : -0.28), 2.8, 7.2);
       }, { passive: false });
     }
 
@@ -1024,23 +1426,43 @@
       this.autoRotate = false;
       const autoBtn = document.getElementById("btn-3d-autorotate");
       if (autoBtn) autoBtn.classList.remove("active");
+      if (this.modelKey === "inphic_w1") {
+        if (preset === "hero") {
+          // Matches W1 Photo 3: Rear-Left-Top 3/4 Gaming Perspective showing IN logo, CPI, glowing wheel & left thumb wing!
+          this.targetYaw = -0.58;
+          this.targetPitch = 0.64;
+          this.targetDistance = 4.15;
+        } else if (preset === "left") {
+          // Matches W1 Photo 2: Front-Left Side Angle showing Forward/Backward buttons, 5 vents, glowing wheel & USB cable!
+          this.targetYaw = -2.18;
+          this.targetPitch = 0.34;
+          this.targetDistance = 4.05;
+        } else if (preset === "top") {
+          // Matches W1 Photo 1: Direct Top-Down Armor View!
+          this.targetYaw = 0.0;
+          this.targetPitch = 1.40;
+          this.targetDistance = 4.30;
+        } else if (preset === "front") {
+          // Front-Right Ergonomic Ledge & Primary Plates View
+          this.targetYaw = 0.78;
+          this.targetPitch = 0.44;
+          this.targetDistance = 4.15;
+        }
+        return;
+      }
       if (preset === "hero") {
-        // Matches Factory Photo 1: Right-Rear 3/4 view (+X, +Z) -> Palm rest left-bottom, Honeycomb center-left, DELUX & Main Wheel right!
         this.targetYaw = 0.78;
         this.targetPitch = 0.26;
         this.targetDistance = 5.10;
       } else if (preset === "left") {
-        // Matches Factory Photo 2: Left Thumb View (-X, +Z) -> Thumb wheel upper-left, Side buttons lower-left, Honeycomb center, Palm rest right!
         this.targetYaw = -1.02;
         this.targetPitch = 0.22;
         this.targetDistance = 4.95;
       } else if (preset === "top") {
-        // Matches Factory Photo 3: Top-Down View -> Nose UP, Side buttons LEFT, Main wheel + DELUX + Palm rest RIGHT!
         this.targetYaw = 0.0;
         this.targetPitch = 1.38;
         this.targetDistance = 5.20;
       } else if (preset === "front") {
-        // Right-Front view -> Split L/R primary buttons, vertical main scroll wheel, OLED front!
         this.targetYaw = 2.15;
         this.targetPitch = 0.22;
         this.targetDistance = 4.85;
@@ -1070,7 +1492,7 @@
       if (next.rgbColor !== undefined) this.state.rgbColor = next.rgbColor;
       if (next.rgbBright !== undefined) this.state.rgbBright = next.rgbBright;
       if (next.rgbSpeed !== undefined) this.state.rgbSpeed = next.rgbSpeed;
-      if (needOled) this._redrawOledTexture();
+      if (needOled && this.modelKey === "delux_m618xsd") this._redrawOledTexture();
     }
 
     _frame() {
@@ -1092,7 +1514,7 @@
       this.pitch += (this.targetPitch - this.pitch) * 0.12;
       this.distance += (this.targetDistance - this.distance) * 0.14;
 
-      const target = [0.04, 0.54, 0.16];
+      const target = this.modelKey === "inphic_w1" ? [0.0, 0.22, -0.02] : [0.04, 0.54, 0.16];
       const cp = Math.cos(this.pitch), sp = Math.sin(this.pitch);
       // Spherical orbit where yaw=0 is directly behind (+Z), yaw=+pi/2 is right (+X), yaw=-pi/2 is left (-X)
       const eye = [

@@ -2,7 +2,7 @@
 set -euo pipefail
 
 PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-VERSION="1.0.0"
+VERSION="1.1.0"
 PKG_NAME="delux-m618xsd-driver"
 ARCH="all"
 STAGE_DIR="$(mktemp -d)"
@@ -55,23 +55,23 @@ cp -f "${PROJECT_ROOT}/delux_m618xsd/ui/assets/delux-m618xsd.svg" \
 
 cat > "${STAGE_DIR}/usr/share/applications/delux-m618xsd-studio.desktop" <<'EOF'
 [Desktop Entry]
-Name=Delux M618XSD Control Center
-Name[zh_CN]=多彩 M618XSD 硬件控制中心
-Comment=On-Demand 3D Hardware Driver, RGB, DPI & Per-App Smart Remapper for Delux M618XSD
-Comment[zh_CN]=多彩 M618XSD 垂直鼠标 3D 硬件控制、DPI、灯效、侧滚轮与按应用智能配置中心
+Name=Multi-Mouse 3D Control Center (Delux / Inphic)
+Name[zh_CN]=多功能鼠标智控中心 (多彩 / 英菲克)
+Comment=On-Demand 3D Hardware Driver, CPI/DPI, LED & Per-App Smart Remapper for Delux M618XSD & Inphic W1
+Comment[zh_CN]=支持多彩 M618XSD 与英菲克 Inphic W1 的 3D 硬件驱动、CPI/DPI、灯效、侧键手势与按应用智能配置中心
 Exec=/usr/bin/m618xsd-studio
 Icon=delux-m618xsd
 Terminal=false
 Type=Application
 Categories=Settings;HardwareSettings;Utility;
-Keywords=mouse;delux;m618xsd;dpi;rgb;remapper;鼠标;多彩;
+Keywords=mouse;delux;m618xsd;inphic;w1;dpi;cpi;rgb;remapper;鼠标;多彩;英菲克;
 StartupWMClass=delux-m618xsd-studio
 EOF
 
 cat > "${STAGE_DIR}/etc/xdg/autostart/delux-m618xsd-tray.desktop" <<'EOF'
 [Desktop Entry]
-Name=Delux M618XSD Tray Indicator
-Name[zh_CN]=多彩 M618XSD 通知栏常驻托盘
+Name=Multi-Mouse Tray Indicator (Delux / Inphic)
+Name[zh_CN]=多功能鼠标通知栏常驻托盘
 Exec=/usr/bin/m618xsd-tray
 Icon=delux-m618xsd
 Terminal=false
@@ -91,11 +91,12 @@ Depends: python3 (>= 3.10), python3-gi, gir1.2-gtk-3.0, gir1.2-webkit2-4.1
 Recommends: gir1.2-ayatanaappindicator3-0.1
 Maintainer: dugubaoguo <dugubaoguo@gmail.com>
 Homepage: https://github.com/lbg2002/delux-m618xsd-driver
-Description: Linux Hardware Driver & 3D Smart Control Center for Delux M618XSD Mouse
- Dedicated Linux driver for the Delux M618XSD (Seeker) vertical ergonomic mouse.
- Features a zero-idle-CPU background per-app/gesture daemon, a lightweight
- notification-bar indicator, and an on-demand WebGL 3D control studio for
- onboard DPI, RGB lighting, polling rate, thumbwheel, and flash button mapping.
+Description: Multi-Mouse Linux Hardware Driver & 3D Smart Control Center (Delux M618XSD & Inphic W1)
+ Native Linux multi-device mouse driver supporting both the Delux M618XSD
+ (Seeker) wireless/wired vertical ergonomic mouse and the Inphic W1 wired
+ gaming mouse (Instant Microelectronics A704/A725). Features a zero-idle-CPU
+ background per-app/gesture/side-wheel daemon, top-bar tray indicator, and an
+ on-demand WebGL 3D control studio for CPI/DPI, LED modes, and button mapping.
 EOF
 
 cat > "${STAGE_DIR}/DEBIAN/postinst" <<'EOF'

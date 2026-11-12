@@ -1,5 +1,5 @@
 #!/usr/bin/python3
-"""Command-Line Interface for Delux M618XSD Studio (Hardware & Smart Daemon control)."""
+"""Command-Line Interface for Multi-Mouse Studio (Delux M618XSD & Inphic W1)."""
 
 from __future__ import annotations
 
@@ -8,15 +8,25 @@ import json
 import os
 import sys
 
-for _candidate in (os.path.dirname(os.path.realpath(__file__)), "/usr/lib/delux-m618xsd"):
+ROOT = os.path.dirname(os.path.realpath(__file__))
+for _candidate in (ROOT, "/usr/lib/delux-m618xsd"):
     if os.path.isdir(os.path.join(_candidate, "delux_m618xsd")) and _candidate not in sys.path:
         sys.path.insert(0, _candidate)
+        ROOT = _candidate
         break
 
-from delux_m618xsd.config import CONFIG_PATH, load_config
+from delux_m618xsd.config import CONFIG_PATH, load_config, save_config
 from delux_m618xsd.daemon import query_daemon
-from delux_m618xsd.hardware import LIGHT_MODES, M618XSDSession, PollingRate
-from delux_m618xsd.hardware import protocol as hp
+from delux_m618xsd.hardware import (
+    INPHIC_LIGHT_MODES,
+    LIGHT_MODES,
+    InphicW1Session,
+    M618XSDSession,
+    PollingRate,
+    find_m618xsd_node,
+    list_inphic_w1_nodes,
+)
+from delux_m618xsd.hardware.inphic_w1 import is_inphic_config_node, load_inphic_state, save_inphic_state, snap_inphic_cpi
 
 
 def _parse_rgb(text: str) -> tuple[int, int, int]:
@@ -31,60 +41,127 @@ def _parse_rgb(text: str) -> tuple[int, int, int]:
     raise ValueError("RGB 格式应为 R,G,B 或 #RRGGBB")
 
 
+def _resolve_active_model() -> str:
+    cfg = load_config(CONFIG_PATH)
+    pref = cfg.preferred_model
+    if pref in ("inphic_w1", "delux_m618xsd"):
+        return pref
+    dm = query_daemon("status")
+    if dm and dm.get("ok") and dm.get("grabbed") and dm.get("device_model") in ("inphic_w1", "delux_m618xsd"):
+        return dm["device_model"]
+    if find_m618xsd_node() is not None:
+        return "delux_m618xsd"
+    if any(is_inphic_config_node(n) for n in list_inphic_w1_nodes()):
+        return "inphic_w1"
+    return "delux_m618xsd"
+
+
 def cmd_status(args: argparse.Namespace) -> int:
-    out: dict = {"daemon": query_daemon("status")}
-    try:
-        with M618XSDSession() as session:
-            hw = session.read_all(profile=1)
-            out["hardware"] = {
-                "node": hw["node"],
-                "firmware": hw["firmware"],
-                "battery": (
-                    {"percent": hw["battery"].percent, "state": hw["battery"].state_label}
-                    if hw["battery"]
-                    else None
-                ),
-                "polling": hw["polling"].to_dict(),
-                "dpi": hw["dpi"].to_dict(),
-                "lighting": hw["lighting"].to_dict(),
-                "buttons": hw["buttons"].to_dict(),
-            }
-    except Exception as exc:
-        out["hardware_error"] = str(exc)
+    active_model = _resolve_active_model()
+    cfg = load_config(CONFIG_PATH)
+    out: dict = {
+        "preferred_model": cfg.preferred_model,
+        "active_model": active_model,
+        "daemon": query_daemon("status"),
+    }
+    if active_model == "inphic_w1":
+        cfg_nodes = [n for n in list_inphic_w1_nodes() if is_inphic_config_node(n)]
+        node = cfg_nodes[0] if cfg_nodes else None
+        st = load_inphic_state()
+        out["hardware"] = {
+            "model": "inphic_w1",
+            "node": node.path if node else None,
+            "accessible": bool(node and node.accessible),
+            "firmware": f"{node.product_name} ({node.vid:04x}:{node.pid:04x})" if node else "Inphic W1 (未连接)",
+            "polling": {"hz": 125},
+            "dpi": st.to_dpi_dict(),
+            "lighting": st.to_lighting_dict(),
+            "buttons": st.to_buttons_dict(),
+        }
+    else:
+        try:
+            with M618XSDSession() as session:
+                hw = session.read_all(profile=1)
+                out["hardware"] = {
+                    "model": "delux_m618xsd",
+                    "node": hw["node"],
+                    "firmware": hw["firmware"],
+                    "battery": (
+                        {"percent": hw["battery"].percent, "state": hw["battery"].state_label}
+                        if hw["battery"]
+                        else None
+                    ),
+                    "polling": hw["polling"].to_dict(),
+                    "dpi": hw["dpi"].to_dict(),
+                    "lighting": hw["lighting"].to_dict(),
+                    "buttons": hw["buttons"].to_dict(),
+                }
+        except Exception as exc:
+            out["hardware_error"] = str(exc)
 
     if args.json:
         print(json.dumps(out, ensure_ascii=False, indent=2))
         return 0
 
-    print("=== 多彩 Delux M618XSD 状态总览 ===")
+    title = "英菲克 Inphic W1" if active_model == "inphic_w1" else "多彩 Delux M618XSD"
+    print(f"=== {title} 状态总览 (型号策略: {cfg.preferred_model}) ===")
     if "hardware" in out:
         hw = out["hardware"]
-        print(f"硬件节点 : {hw['node']}  |  固件: {hw['firmware']}")
-        if hw["battery"]:
+        print(f"硬件节点 : {hw['node'] or '未连接'}  |  识别: {hw['firmware']}")
+        if hw.get("battery"):
             print(f"电池状态 : {hw['battery']['percent']}% ({hw['battery']['state']})")
         print(f"回报率   : {hw['polling']['hz']} Hz")
         cur_st = hw["dpi"]["current_stage"]
         stages_str = ", ".join(
-            f"{'*' if s['stage'] == cur_st else ''}[{s['stage']}]{s['dpi']}DPI"
+            f"{'*' if s['stage'] == cur_st else ''}[{s['stage']}]{s['dpi']}{'CPI' if active_model == 'inphic_w1' else 'DPI'}"
             for s in hw["dpi"]["stages"]
             if s["enabled"]
         )
-        print(f"板载 DPI : {stages_str}")
+        print(f"档位参数 : {stages_str}")
         lt = hw["lighting"]
-        print(f"RGB 灯光 : {lt['mode_label']} | 颜色 RGB{tuple(lt['rgb'])} | 亮度 {lt['brightness']}/8 | 休眠 {lt['light_sleep_minutes']}m/{lt['deep_sleep_minutes']}m")
+        if active_model == "inphic_w1":
+            print(f"背光灯效 : {lt['mode_label']} (0x{lt['mode']:02X})")
+        else:
+            print(
+                f"RGB 灯光 : {lt['mode_label']} | 颜色 RGB{tuple(lt['rgb'])} | 亮度 {lt['brightness']}/8 | "
+                f"休眠 {lt['light_sleep_minutes']}m/{lt['deep_sleep_minutes']}m"
+            )
     else:
         print(f"硬件状态 : {out.get('hardware_error')}")
 
     dm = out["daemon"]
     if dm and dm.get("ok"):
-        print(f"智能守护 : 运行中 (PID {dm['pid']}) | 接管设备: {dm['device_path'] or '待命'}")
+        print(f"智能守护 : 运行中 (PID {dm['pid']}) | 接管设备: {dm['device_path'] or '待命'} ({dm.get('device_name') or '无'})")
         print(f"当前方案 : {dm['active_profile']['name']}  (窗口: {dm['window']['label']})")
     else:
         print("智能守护 : 未运行 (可执行 ./m618xsd-daemon 启动)")
     return 0
 
 
+def cmd_set_model(args: argparse.Namespace) -> int:
+    cfg = load_config(CONFIG_PATH)
+    cfg.preferred_model = args.model
+    save_config(cfg, CONFIG_PATH)
+    query_daemon("reload")
+    print(f"已将型号管理策略切换为: {args.model}")
+    return 0
+
+
 def cmd_set_dpi(args: argparse.Namespace) -> int:
+    active_model = _resolve_active_model()
+    if active_model == "inphic_w1":
+        st = load_inphic_state()
+        if args.stage:
+            st.current_stage = max(1, min(4, args.stage))
+        if args.value:
+            st.stages_cpi[st.current_stage - 1] = snap_inphic_cpi(args.value)
+        st.user_configured = True
+        with InphicW1Session() as session:
+            session.write_dpi(st)
+        save_inphic_state(st)
+        print(f"已更新 Inphic W1 CPI：当前第 {st.current_stage} 档 = {st.stages_cpi[st.current_stage - 1]} CPI")
+        return 0
+
     with M618XSDSession() as session:
         dpi_cfg = session.read_dpi()
         if args.stage:
@@ -98,6 +175,8 @@ def cmd_set_dpi(args: argparse.Namespace) -> int:
 
 
 def cmd_set_poll(args: argparse.Namespace) -> int:
+    if _resolve_active_model() == "inphic_w1":
+        raise SystemExit("英菲克 Inphic W1 有线版硬件固定为 125 Hz USB 回报率，不支持切换回报率。")
     with M618XSDSession() as session:
         session.write_polling(PollingRate(profile=1, hz=args.hz))
         print(f"已将板载无线/有线回报率设为 {args.hz} Hz")
@@ -105,6 +184,24 @@ def cmd_set_poll(args: argparse.Namespace) -> int:
 
 
 def cmd_set_rgb(args: argparse.Namespace) -> int:
+    if _resolve_active_model() == "inphic_w1":
+        inphic_lookup = {k: code for code, (k, _) in INPHIC_LIGHT_MODES.items()}
+        alias_map = {"steady": "static", "off": "off", "breath": "breathe_4s", "stream": "pulse_2s", "neon": "breathe_3s"}
+        st = load_inphic_state()
+        if args.mode:
+            target_key = alias_map.get(args.mode, args.mode)
+            if target_key not in inphic_lookup:
+                raise SystemExit(f"未知 Inphic 背光模式 {args.mode!r}，可选: {', '.join(inphic_lookup)}")
+            st.light_mode = inphic_lookup[target_key]
+        if args.color:
+            st.light_rgb = list(_parse_rgb(args.color))
+        st.user_configured = True
+        with InphicW1Session() as session:
+            session.write_lighting(st)
+        save_inphic_state(st)
+        print(f"已更新 Inphic W1 背光模式：{st.to_lighting_dict()['mode_label']}")
+        return 0
+
     mode_lookup = {k: code for code, (k, _) in LIGHT_MODES.items()}
     with M618XSDSession() as session:
         light = session.read_lighting()
@@ -125,6 +222,16 @@ def cmd_set_rgb(args: argparse.Namespace) -> int:
 
 
 def cmd_restore_factory(_args: argparse.Namespace) -> int:
+    if _resolve_active_model() == "inphic_w1":
+        from delux_m618xsd.hardware import InphicW1State
+
+        st = InphicW1State(user_configured=True)
+        with InphicW1Session() as session:
+            session.write_all(st)
+        save_inphic_state(st)
+        print("已恢复英菲克 Inphic W1 出厂默认硬件寄存器配置 (800/1200/1600/2400 CPI + 标准呼吸灯)")
+        return 0
+
     backup = os.path.join(ROOT, "factory_backup.json")
     with M618XSDSession() as session:
         restored = session.restore_backup_file(backup)
@@ -133,30 +240,35 @@ def cmd_restore_factory(_args: argparse.Namespace) -> int:
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="多彩 Delux M618XSD Linux 命令行控制工具")
+    parser = argparse.ArgumentParser(description="多功能鼠标智控工具 (Delux M618XSD & Inphic W1)")
     sub = parser.add_subparsers(dest="cmd")
 
-    p_st = sub.add_parser("status", help="查看鼠标电量、DPI、灯光及后台智能守护状态")
+    p_st = sub.add_parser("status", help="查看当前鼠标型号、CPI/DPI、灯光及后台智能守护状态")
     p_st.add_argument("--json", action="store_true", help="输出 JSON 格式")
     p_st.set_defaults(func=cmd_status)
 
-    p_dpi = sub.add_parser("dpi", help="切换 DPI 档位或修改指定档位 DPI 数值 (400-4000)")
-    p_dpi.add_argument("--stage", type=int, choices=[1, 2, 3, 4, 5], help="切换到第 1..5 档")
-    p_dpi.add_argument("--value", type=int, help="将该档位 DPI 修改为指定数值 (400..4000)")
+    p_md = sub.add_parser("model", help="切换设备识别模式 (auto / inphic_w1 / delux_m618xsd)")
+    p_md.add_argument("model", choices=["auto", "inphic_w1", "delux_m618xsd"])
+    p_md.set_defaults(func=cmd_set_model)
+
+    p_dpi = sub.add_parser("dpi", help="切换 CPI/DPI 档位或修改指定档位数值")
+    p_dpi.add_argument("--stage", type=int, choices=[1, 2, 3, 4, 5], help="切换到第 1..5 档 (W1 为 1..4 档)")
+    p_dpi.add_argument("--value", type=int, help="修改当前档位数值 (M618XSD: 400..4000, W1: 400..4800)")
     p_dpi.set_defaults(func=cmd_set_dpi)
 
-    p_poll = sub.add_parser("poll", help="设置板载回报率 (125 / 250 / 500 / 1000 Hz)")
+    p_poll = sub.add_parser("poll", help="设置 M618XSD 板载回报率 (125 / 250 / 500 / 1000 Hz)")
     p_poll.add_argument("hz", type=int, choices=[125, 250, 500, 1000])
     p_poll.set_defaults(func=cmd_set_poll)
 
-    p_rgb = sub.add_parser("rgb", help="设置板载 RGB 灯光模式、颜色与亮度")
-    p_rgb.add_argument("--mode", choices=[k for _, (k, _) in LIGHT_MODES.items()], help="灯效模式")
+    all_modes = list(dict.fromkeys([k for _, (k, _) in LIGHT_MODES.items()] + [k for _, (k, _) in INPHIC_LIGHT_MODES.items()]))
+    p_rgb = sub.add_parser("rgb", help="设置板载 RGB / 背光模式、颜色与亮度")
+    p_rgb.add_argument("--mode", choices=all_modes, help="灯效模式")
     p_rgb.add_argument("--color", help="RGB 颜色，例如 '#00FF88' 或 '0,255,136'")
-    p_rgb.add_argument("--brightness", type=int, help="亮度 1..8")
-    p_rgb.add_argument("--speed", type=int, help="动态速度 1..5")
+    p_rgb.add_argument("--brightness", type=int, help="亮度 1..8 (M618XSD)")
+    p_rgb.add_argument("--speed", type=int, help="动态速度 1..5 (M618XSD)")
     p_rgb.set_defaults(func=cmd_set_rgb)
 
-    p_rst = sub.add_parser("restore-factory", help="一键恢复出厂板载硬件配置")
+    p_rst = sub.add_parser("restore-factory", help="一键恢复当前鼠标出厂硬件配置")
     p_rst.set_defaults(func=cmd_restore_factory)
 
     p_prof = sub.add_parser("profiles", help="列出所有智能按应用切换方案")

@@ -74,15 +74,29 @@ class M618XSDTrayApplet:
         self.chk_per_app.connect("toggled", self._on_toggle_per_app)
         self.menu.append(self.chk_per_app)
 
-        # Quick onboard polling rate submenu
-        poll_item = Gtk.MenuItem(label="快速切换板载回报率")
+        # Quick device model selector submenu
+        model_item = Gtk.MenuItem(label="管理设备型号切换")
+        model_sub = Gtk.Menu()
+        for mkey, mlbl in (
+            ("auto", "自动识别已连接鼠标 (推荐)"),
+            ("inphic_w1", "英菲克 Inphic W1 (有线版)"),
+            ("delux_m618xsd", "多彩 Delux M618XSD (垂直无线版)"),
+        ):
+            mi = Gtk.MenuItem(label=mlbl)
+            mi.connect("activate", self._on_set_model, mkey)
+            model_sub.append(mi)
+        model_item.set_submenu(model_sub)
+        self.menu.append(model_item)
+
+        # Quick onboard polling rate submenu (M618XSD)
+        self.poll_item = Gtk.MenuItem(label="切换硬件回报率 (M618XSD)")
         poll_sub = Gtk.Menu()
         for hz in (125, 250, 500, 1000):
             mi = Gtk.MenuItem(label=f"{hz} Hz")
             mi.connect("activate", self._on_set_poll, hz)
             poll_sub.append(mi)
-        poll_item.set_submenu(poll_sub)
-        self.menu.append(poll_item)
+        self.poll_item.set_submenu(poll_sub)
+        self.menu.append(self.poll_item)
 
         self.item_restart_daemon = Gtk.MenuItem(label="重启后台鼠标守护服务")
         self.item_restart_daemon.connect("activate", self._on_restart_daemon)
@@ -152,14 +166,23 @@ class M618XSDTrayApplet:
             self._updating_checks = False
 
         if st and st.get("ok"):
-            bat = st.get("battery")
-            bat_txt = (
-                f"{bat['percent']}% ({bat.get('state_label', '在线')})"
-                if isinstance(bat, dict) and isinstance(bat.get("percent"), int)
-                else "在线"
-            )
-            grab_txt = "已接管" if st.get("grabbed") else "板载直通"
-            self.item_hw_status.set_label(f"状态: {grab_txt} · 电量 {bat_txt}")
+            dev_model = st.get("device_model") or ""
+            grab_txt = "已接管" if st.get("grabbed") else "硬件直通"
+            if dev_model == "inphic_w1":
+                self.item_hw_status.set_label(f"设备: Inphic W1 有线版 · {grab_txt}")
+                self.poll_item.set_sensitive(False)
+            elif dev_model == "delux_m618xsd":
+                bat = st.get("battery")
+                bat_txt = (
+                    f"{bat['percent']}%"
+                    if isinstance(bat, dict) and isinstance(bat.get("percent"), int)
+                    else "在线"
+                )
+                self.item_hw_status.set_label(f"设备: M618XSD · {grab_txt} · 电量 {bat_txt}")
+                self.poll_item.set_sensitive(True)
+            else:
+                self.item_hw_status.set_label(f"状态: 守护运行中 (等待鼠标接入)")
+                self.poll_item.set_sensitive(True)
             prof_name = (st.get("active_profile") or {}).get("name") or "全局默认配置"
             self.item_profile_status.set_label(f"生效方案: {prof_name}")
         else:
@@ -191,6 +214,13 @@ class M618XSDTrayApplet:
         save_config(cfg, CONFIG_PATH)
         query_daemon("reload")
         self.refresh_menu_state()
+
+    def _on_set_model(self, _widget: Gtk.MenuItem, mkey: str) -> None:
+        cfg = load_config(CONFIG_PATH)
+        cfg.preferred_model = mkey
+        save_config(cfg, CONFIG_PATH)
+        query_daemon("reload")
+        GLib.timeout_add(300, lambda: (self.refresh_menu_state(), False)[1])
 
     def _on_set_poll(self, _widget: Gtk.MenuItem, hz: int) -> None:
         subprocess.Popen(

@@ -129,6 +129,81 @@ class TestM618XSDProtocol(unittest.TestCase):
         self.assertIsInstance(bat, hp.BatteryEvent)
         self.assertEqual(bat.percent, 73)
 
+    def test_inphic_w1_protocol_and_virtual_side_wheel(self) -> None:
+        from delux_m618xsd.daemon.engine import SmartMouseDaemon
+        from delux_m618xsd.daemon.linux_input import BTN_EXTRA, EV_KEY, EV_REL, EV_SYN, REL_WHEEL
+        from delux_m618xsd.hardware.inphic_w1 import (
+            InphicCpiEvent,
+            InphicW1State,
+            build_inphic_button_packets,
+            build_inphic_dpi_packets,
+            build_inphic_lighting_packet,
+            decode_inphic_interrupt,
+        )
+        from delux_m618xsd.ui.server import MODEL_CAPABILITIES
+
+        # 1. Verify 8-byte Feature Report 0x07 packets for Instant A704 (30fa:1701)
+        led_off = build_inphic_lighting_packet(0x17)
+        self.assertEqual(len(led_off), 8)
+        self.assertEqual(led_off[:4], bytes([0x07, 0x13, 0x7F, 0x17]))
+
+        dpi_pkts = build_inphic_dpi_packets([800, 1200, 2400, 4800], [True, True, True, True], current_stage=2)
+        self.assertEqual(len(dpi_pkts), 4)
+        # Stage 2 selected -> active_idx=1, 1200 CPI -> nibble=3 -> (3 << 4) | 0x09 = 0x39, mask=0x0F
+        self.assertEqual(dpi_pkts[1][:5], bytes([0x07, 0x09, 0x01, 0x39, 0x0F]))
+        # 4800 CPI -> nibble=12 -> (12 << 4) | 0x0B = 0xCB
+        self.assertEqual(dpi_pkts[3][3], 0xCB)
+
+        btn_pkts = build_inphic_button_packets({1: "left-click", 4: "triple-click", 6: "dpi-cycle"})
+        self.assertEqual(len(btn_pkts), 7)  # 6 slots + 0x08 variant for top CPI button
+        self.assertEqual(btn_pkts[3][:4], bytes([0x07, 0x10, 0x04, 0x16]))  # Slot 4 (0x04) -> Triple Fire 0x16
+
+        # 2. Verify passive CPI button interrupt 0x06 decoding
+        ev = decode_inphic_interrupt(bytes([0x06, 0x00, 0x02]))
+        self.assertEqual(ev, InphicCpiEvent(stage=3, button_mask=0))
+
+        # 3. Verify InphicW1State round-trip
+        st = InphicW1State(stages_cpi=[800, 1600, 2400, 3600], current_stage=3, light_mode=0x16)
+        st2 = InphicW1State.from_json_dict(st.to_json_dict())
+        self.assertEqual(st2.stages_cpi, [800, 1600, 2400, 3600])
+        self.assertEqual(st2.current_stage, 3)
+        self.assertEqual(st2.light_mode, 0x16)
+        self.assertIn("inphic_w1", MODEL_CAPABILITIES)
+        self.assertIn("delux_m618xsd", MODEL_CAPABILITIES)
+
+        # 4. Verify Inphic W1 Virtual Side-Wheel Chord (Hold Forward + Main Wheel vs Tap Forward)
+        mouse_emitted: list[list[tuple[int, int, int]]] = []
+        combos_emitted: list[list[int]] = []
+        daemon = SmartMouseDaemon()
+        daemon.virtual.emit_mouse = lambda evs, sync=True: mouse_emitted.append(list(evs))  # type: ignore[method-assign]
+        daemon.virtual.emit_key_combo = lambda codes: combos_emitted.append(list(codes))  # type: ignore[method-assign]
+
+        # Configure Forward button on active default profile as Virtual Side-Wheel for Tab Switching
+        prof = daemon._active_prof_cached
+        prof.bindings["forward"] = ActionSpec(
+            kind="gesture_4way",
+            tap={"kind": "passthrough"},
+            wheel_up={"kind": "key_combo", "combo": "Ctrl+Shift+Tab"},
+            wheel_down={"kind": "key_combo", "combo": "Ctrl+Tab"},
+        )
+
+        # Case A: Single tap Forward -> emits native BTN_EXTRA click!
+        daemon._process_batch_safe([(EV_KEY, BTN_EXTRA, 1), (EV_SYN, 0, 0)])
+        daemon._process_batch_safe([(EV_KEY, BTN_EXTRA, 0), (EV_SYN, 0, 0)])
+        flat_mouse = [(t, c, v) for b in mouse_emitted for (t, c, v) in b]
+        self.assertIn((EV_KEY, BTN_EXTRA, 1), flat_mouse)
+        self.assertIn((EV_KEY, BTN_EXTRA, 0), flat_mouse)
+
+        # Case B: Hold Forward + Scroll Wheel Down -> emits Ctrl+Tab without native Forward click!
+        mouse_emitted.clear()
+        combos_emitted.clear()
+        daemon._process_batch_safe([(EV_KEY, BTN_EXTRA, 1), (EV_SYN, 0, 0)])
+        daemon._process_batch_safe([(EV_REL, REL_WHEEL, -1), (EV_SYN, 0, 0)])
+        daemon._process_batch_safe([(EV_KEY, BTN_EXTRA, 0), (EV_SYN, 0, 0)])
+        self.assertEqual(combos_emitted, [[29, 15]])  # Ctrl+Tab
+        flat_mouse_chord = [(t, c, v) for b in mouse_emitted for (t, c, v) in b]
+        self.assertNotIn((EV_KEY, BTN_EXTRA, 1), flat_mouse_chord)
+
     def test_live_hardware_readonly_session(self) -> None:
         from delux_m618xsd.hardware.session import SessionError
 

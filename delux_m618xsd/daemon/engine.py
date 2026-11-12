@@ -25,6 +25,13 @@ from ..config.profiles import (
     load_config,
 )
 from ..hardware import protocol as hp
+from ..hardware.inphic_w1 import (
+    InphicW1Session,
+    decode_inphic_interrupt,
+    list_inphic_w1_nodes,
+    load_inphic_state,
+    save_inphic_state,
+)
 from ..hardware.keymap import parse_combo_to_evdev, resolve_evdev_key
 from ..hardware.session import list_m618xsd_nodes
 from .linux_input import (
@@ -44,7 +51,7 @@ from .linux_input import (
     REL_Y,
     PhysicalMouseReader,
     VirtualInputPair,
-    find_m618xsd_mouse_evdev,
+    find_supported_mouse_evdev,
 )
 from .window_tracker import ActiveWindowTracker, WindowInfo
 
@@ -83,8 +90,10 @@ class SmartMouseDaemon:
         self.reader: PhysicalMouseReader | None = None
         self.device_name: str = ""
         self.device_path: str = ""
+        self.device_model: str = ""
         self._hidraw_fd: int | None = None
         self._hidraw_path: str = ""
+        self._hidraw_model: str = ""
         self.running = False
 
         # Runtime states
@@ -249,6 +258,7 @@ class SmartMouseDaemon:
                 "per_app_enabled": self.config.per_app_enabled,
                 "device_path": self.device_path,
                 "device_name": self.device_name,
+                "device_model": self.device_model,
                 "grabbed": bool(self.reader and self.reader.grabbed),
                 "window": {
                     "app_id": win.app_id,
@@ -529,19 +539,45 @@ class SmartMouseDaemon:
                 self.virtual.emit_mouse(fallback, sync=True)
 
     def _sync_passive_hidraw(self) -> None:
-        """Open config hidraw strictly O_RDONLY to receive passive Report 0x03 battery/DPI events."""
-        if self._hidraw_fd is not None:
+        """Open config hidraw strictly O_RDONLY to receive passive Report 0x03 (M618XSD) or 0x06 (Inphic W1) events."""
+        if self._hidraw_fd is not None and os.path.exists(self._hidraw_path):
+            if not self.device_model or self._hidraw_model == self.device_model:
+                return
+            self._close_passive_hidraw()
+
+        target = ""
+        target_model = ""
+        if self.device_model == "inphic_w1":
+            inodes = list_inphic_w1_nodes()
+            if inodes:
+                target = inodes[0].path
+                target_model = "inphic_w1"
+        elif self.device_model == "delux_m618xsd":
+            mnodes = list_m618xsd_nodes()
+            if mnodes:
+                target = mnodes[0].path
+                target_model = "delux_m618xsd"
+        else:
+            mnodes = list_m618xsd_nodes()
+            if mnodes:
+                target = mnodes[0].path
+                target_model = "delux_m618xsd"
+            else:
+                inodes = list_inphic_w1_nodes()
+                if inodes:
+                    target = inodes[0].path
+                    target_model = "inphic_w1"
+
+        if not target:
             return
-        nodes = list_m618xsd_nodes()
-        if not nodes:
-            return
-        target = nodes[0].path
         try:
             self._hidraw_fd = os.open(target, os.O_RDONLY | os.O_NONBLOCK)
             self._hidraw_path = target
+            self._hidraw_model = target_model
         except OSError:
             self._hidraw_fd = None
             self._hidraw_path = ""
+            self._hidraw_model = ""
 
     def _close_passive_hidraw(self) -> None:
         if self._hidraw_fd is not None:
@@ -551,6 +587,7 @@ class SmartMouseDaemon:
                 pass
             self._hidraw_fd = None
             self._hidraw_path = ""
+            self._hidraw_model = ""
 
     def _drain_passive_hidraw(self) -> None:
         if self._hidraw_fd is None:
@@ -567,6 +604,20 @@ class SmartMouseDaemon:
                 break
             if not pkt:
                 break
+            if self._hidraw_model == "inphic_w1":
+                iev = decode_inphic_interrupt(pkt)
+                if iev is not None:
+                    st = load_inphic_state()
+                    if st.current_stage != iev.stage:
+                        st.current_stage = iev.stage
+                        try:
+                            save_inphic_state(st)
+                        except OSError:
+                            pass
+                    cpi_val = st.stages_cpi[iev.stage - 1] if 1 <= iev.stage <= len(st.stages_cpi) else 1200
+                    self._log(f"Inphic W1 物理 CPI 键切换 -> 第 {iev.stage} 档 ({cpi_val} CPI)")
+                continue
+
             ev = hp.decode_interrupt_event(pkt)
             if isinstance(ev, hp.BatteryEvent):
                 bat_dict = {
@@ -580,24 +631,47 @@ class SmartMouseDaemon:
             elif isinstance(ev, hp.DpiCycleEvent):
                 self._log(f"硬件 DPI 键切换 -> 第 {ev.stage} 档")
 
+    def _reapply_inphic_sram_if_saved(self) -> None:
+        st = load_inphic_state()
+        if not st.user_configured:
+            return
+        try:
+            with InphicW1Session() as sess:
+                sess.write_all(st)
+            self._log("已向 Inphic W1 自动恢复保存的 CPI 与灯光参数")
+        except Exception as exc:
+            self._log(f"恢复 Inphic W1 参数提示: {exc}")
+
     def _sync_grab_state(self) -> None:
         if not self.config.daemon_enabled:
             if self.reader is not None:
                 self.reader.close()
                 self.reader = None
                 self.device_path = ""
+                self.device_model = ""
                 self._gesture = None
-                self._log("智能增强层已暂停（恢复纯板载直通模式）")
+                self._log("智能增强层已暂停（恢复纯硬件直通模式）")
             return
 
         if self.reader is not None and not os.path.exists(self.device_path):
             self.reader.close()
             self.reader = None
             self.device_path = ""
+            self.device_model = ""
             self._gesture = None
 
+        pref = None if self.config.preferred_model == "auto" else self.config.preferred_model
+        if self.reader is not None and pref and self.device_model and self.device_model != pref:
+            cand = find_supported_mouse_evdev(preferred_model=pref)
+            if cand is not None and cand.path != self.device_path:
+                self.reader.close()
+                self.reader = None
+                self.device_path = ""
+                self.device_model = ""
+                self._gesture = None
+
         if self.reader is None:
-            node = find_m618xsd_mouse_evdev()
+            node = find_supported_mouse_evdev(preferred_model=pref)
             if node is not None:
                 reader = PhysicalMouseReader(node.path)
                 try:
@@ -605,8 +679,12 @@ class SmartMouseDaemon:
                     self.reader = reader
                     self.device_path = node.path
                     self.device_name = node.name
+                    self.device_model = node.model_key
                     self._gesture = None
-                    self._log(f"已接管鼠标输入: {node.name} ({node.path})")
+                    model_title = "Inphic W1" if node.model_key == "inphic_w1" else "Delux M618XSD"
+                    self._log(f"已接管 {model_title} 输入: {node.name} ({node.path})")
+                    if node.model_key == "inphic_w1":
+                        threading.Thread(target=self._reapply_inphic_sram_if_saved, daemon=True).start()
                 except OSError as exc:
                     reader.close()
                     self._log(f"接管鼠标失败: {exc}")

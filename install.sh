@@ -12,11 +12,11 @@ chmod +x "${PROJECT_ROOT}/m618xsd-studio" \
 
 # 1. Install udev permissions unless --user-only
 if [ "${USER_ONLY}" != "--user-only" ]; then
-    if [ ! -f /etc/udev/rules.d/99-delux-m618xsd.rules ] && [ ! -f /lib/udev/rules.d/99-delux-m618xsd.rules ]; then
-        echo ">>> 安装 udev 设备访问权限规则..."
+    if ( [ ! -f /etc/udev/rules.d/99-delux-m618xsd.rules ] && [ ! -f /lib/udev/rules.d/99-delux-m618xsd.rules ] ) || ! grep -q "30fa" /etc/udev/rules.d/99-delux-m618xsd.rules /lib/udev/rules.d/99-delux-m618xsd.rules 2>/dev/null; then
+        echo ">>> 安装/升级 udev 多型号鼠标访问权限规则..."
         pkexec "${PROJECT_ROOT}/udev/install-udev.sh"
     else
-        echo ">>> 已检测到 udev 权限规则，跳过提权安装。"
+        echo ">>> 已检测到最新 udev 权限规则，跳过提权安装。"
     fi
 fi
 

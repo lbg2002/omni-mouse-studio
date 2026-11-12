@@ -13,10 +13,10 @@
          ================================================================ -->
     <aside class="sidebar">
       <div class="brand-header">
-        <div class="brand-mark">M618</div>
+        <div class="brand-mark" id="sidebar-brand-mark">M618</div>
         <div class="brand-titles">
-          <h1>DELUX M618XSD</h1>
-          <span>HARDWARE CONTROL CENTER</span>
+          <h1 id="sidebar-brand-title">DELUX M618XSD</h1>
+          <span id="sidebar-brand-sub">HARDWARE CONTROL CENTER</span>
         </div>
       </div>
 
@@ -27,7 +27,7 @@
           <span class="nav-idx">01</span>
           <span class="nav-labels">
             <strong>设备总览</strong>
-            <small>3D 硬件视图 · 实时电量遥测</small>
+            <small id="nav-sub-overview">3D 硬件视图 · 实时状态遥测</small>
           </span>
         </button>
 
@@ -35,31 +35,31 @@
           <span class="nav-idx">02</span>
           <span class="nav-labels">
             <strong>按键与应用配置</strong>
-            <small>应用切换 · 侧滚轮 · 四向手势</small>
+            <small id="nav-sub-bindings">应用切换 · 多功能键 · 手势</small>
           </span>
         </button>
 
         <button type="button" class="nav-item" data-pane="dpi">
           <span class="nav-idx">03</span>
           <span class="nav-labels">
-            <strong>传感器与回报率</strong>
-            <small>5 档 DPI · 1000Hz · 按键消抖</small>
+            <strong id="nav-title-dpi">传感器与回报率</strong>
+            <small id="nav-sub-dpi">多档 DPI/CPI · 性能参数</small>
           </span>
         </button>
 
         <button type="button" class="nav-item" data-pane="rgb">
           <span class="nav-idx">04</span>
           <span class="nav-labels">
-            <strong>灯光与电源管理</strong>
-            <small>尾部蜂巢背光 · 双级休眠</small>
+            <strong id="nav-title-rgb">灯光与电源管理</strong>
+            <small id="nav-sub-rgb">硬件背光灯效 · 节能控制</small>
           </span>
         </button>
 
         <button type="button" class="nav-item" data-pane="onboard">
           <span class="nav-idx">05</span>
           <span class="nav-labels">
-            <strong>板载芯片与日志</strong>
-            <small>Flash 硬件直写 · 备份 · 监控</small>
+            <strong>硬件寄存器与日志</strong>
+            <small id="nav-sub-onboard">芯片按键直写 · 备份 · 监控</small>
           </span>
         </button>
       </nav>
@@ -95,12 +95,17 @@
             <i class="status-dot" id="hud-hw-dot"></i>
             <span id="hud-conn-text">硬件通道检测中</span>
           </div>
-          <div class="tel-chip bat-chip">电量 <strong id="hud-bat-text">--%</strong></div>
+          <div class="tel-chip bat-chip" id="hud-bat-chip"><span id="hud-bat-lbl">电量</span> <strong id="hud-bat-text">--%</strong></div>
           <div class="tel-chip">灵敏度 <strong id="hud-dpi-text">-- DPI</strong></div>
-          <div class="tel-chip">回报率 <strong id="hud-hz-text">-- Hz</strong></div>
-          <div class="tel-chip">固件 <strong id="hud-fw-text">--</strong></div>
+          <div class="tel-chip" id="hud-hz-chip">回报率 <strong id="hud-hz-text">-- Hz</strong></div>
+          <div class="tel-chip">主控 <strong id="hud-fw-text">--</strong></div>
         </div>
         <div class="top-actions">
+          <select class="cyber-select" id="sel-device-model" style="height:28px;font-size:11.5px;padding-right:26px;" title="切换当前管理的鼠标型号">
+            <option value="auto">设备: 自动识别</option>
+            <option value="inphic_w1">英菲克 Inphic W1</option>
+            <option value="delux_m618xsd">多彩 Delux M618XSD</option>
+          </select>
           <button type="button" class="hw-btn sm" id="btn-sync-hw">同步硬件状态</button>
           <button type="button" class="hw-btn sm primary" id="btn-restart-daemon">守护进程运行中</button>
         </div>
@@ -115,7 +120,7 @@
             <!-- Left 3D / Reference Viewport -->
             <div class="viewport-card">
               <div class="viewport-topbar">
-                <span class="viewport-code">M618XSD // 57-DEG VERTICAL ERGONOMIC VIEWPORT</span>
+                <span class="viewport-code" id="viewport-model-code">M618XSD // 57-DEG VERTICAL ERGONOMIC VIEWPORT</span>
                 <div class="mode-tabs">
                   <button type="button" class="mode-tab active" data-vmode="3d">3D 实时建模视图</button>
                   <button type="button" class="mode-tab" data-vmode="photo">原厂标准实拍对比</button>
@@ -128,33 +133,29 @@
               </div>
 
               <div class="photo-holo-wrap" id="photo-stage-wrap">
-                <img src="/assets/m618xsd_right.png" alt="Delux M618XSD" class="photo-render-img" id="photo-view-img" />
+                <img src="/assets/m618xsd_right.png" alt="Mouse Reference" class="photo-render-img" id="photo-view-img" />
               </div>
 
               <div class="viewport-footer">
                 <div class="cam-group" id="cam-3d-controls">
-                  <button type="button" class="cam-pill active" data-cam="hero">右侧主滚轮与蜂巢</button>
-                  <button type="button" class="cam-pill" data-cam="left">左侧拇指轮与侧键</button>
-                  <button type="button" class="cam-pill" data-cam="top">顶部 OLED 俯视</button>
-                  <button type="button" class="cam-pill" data-cam="front">右前主键视角</button>
+                  <button type="button" class="cam-pill active" data-cam="hero" id="cam-lbl-hero">右侧主滚轮与蜂巢</button>
+                  <button type="button" class="cam-pill" data-cam="left" id="cam-lbl-left">左侧拇指轮与侧键</button>
+                  <button type="button" class="cam-pill" data-cam="top" id="cam-lbl-top">顶部俯视</button>
+                  <button type="button" class="cam-pill" data-cam="front" id="cam-lbl-front">右前主键视角</button>
                 </div>
-                <div class="cam-group" id="cam-photo-controls" style="display:none;">
-                  <button type="button" class="cam-pill active" data-photo="/assets/m618xsd_right.png">原厂图 1 · 右侧主滚轮与 DELUX</button>
-                  <button type="button" class="cam-pill" data-photo="/assets/m618xsd_left.png">原厂图 2 · 左侧拇指轮与前后侧键</button>
-                  <button type="button" class="cam-pill" data-photo="/assets/m618xsd_top.png">原厂图 3 · 顶部 OLED 俯视</button>
-                </div>
+                <div class="cam-group" id="cam-photo-controls" style="display:none;"></div>
                 <button type="button" class="cam-pill" id="btn-3d-autorotate">自动旋转</button>
               </div>
             </div>
 
             <!-- Right Live Battery, Hardware Metrics & App Routing Column -->
             <div class="overview-side">
-              <!-- 1. Prominent Real Battery Readout Panel -->
+              <!-- 1. Prominent Real Battery / Wired Engine Readout Panel -->
               <div class="battery-hero-card" id="ov-bat-card">
                 <div class="bat-top-row">
                   <div class="bat-label-group">
-                    <span>BATTERY TELEMETRY // 1000mAh 锂电池实时电量</span>
-                    <strong id="ov-bat-state">正在读取硬件电量...</strong>
+                    <span id="ov-bat-tag">BATTERY TELEMETRY // 1000mAh 锂电池实时电量</span>
+                    <strong id="ov-bat-state">正在读取硬件状态...</strong>
                   </div>
                   <div class="bat-pct-readout" id="ov-bat-big">--<small>%</small></div>
                 </div>
@@ -274,35 +275,35 @@
                   <button type="button" class="hw-btn sm primary" id="btn-save-prof-meta">保存匹配词</button>
                 </div>
 
-                <!-- Section 1: Thumbwheel 3x2 Quick Presets -->
+                <!-- Section 1: Thumbwheel / Side-Chord 3x2 Quick Presets -->
                 <div style="margin-bottom:14px;">
                   <div class="section-label">
-                    <span>01 // 左侧拇指滚轮快捷预设 (点击一键套用至当前方案)</span>
+                    <span id="lbl-scenario-section">01 // 左侧拇指滚轮快捷预设 (点击一键套用至当前方案)</span>
                   </div>
                   <div class="scenario-grid" id="scenario-grid-box">
                     <button type="button" class="scenario-btn" data-tw="tabs">
                       <strong>浏览器标签页切换</strong>
-                      <small>上拨: Ctrl+Shift+Tab · 下拨: Ctrl+Tab</small>
+                      <small class="sc-sub" data-m618="上拨: Ctrl+Shift+Tab · 下拨: Ctrl+Tab" data-w1="按住前进+滚轮: 切标签 · 单击仍为前进">上拨: Ctrl+Shift+Tab · 下拨: Ctrl+Tab</small>
                     </button>
                     <button type="button" class="scenario-btn" data-tw="zoom">
                       <strong>图片 / PDF / 文档智能缩放</strong>
-                      <small>上拨: 画面放大 · 下拨: 画面缩小</small>
+                      <small class="sc-sub" data-m618="上拨: 画面放大 · 下拨: 画面缩小" data-w1="按住前进+滚轮: 智能放大缩小 · 单击前进">上拨: 画面放大 · 下拨: 画面缩小</small>
                     </button>
                     <button type="button" class="scenario-btn" data-tw="hscroll">
-                      <strong>原厂水平横向滚动</strong>
-                      <small>上拨: 向左横滚 · 下拨: 向右横滚</small>
+                      <strong id="sc-title-hscroll">原厂水平横向滚动</strong>
+                      <small class="sc-sub" data-m618="上拨: 向左横滚 · 下拨: 向右横滚" data-w1="按住前进+滚轮: 左右横向滚动 · 单击前进">上拨: 向左横滚 · 下拨: 向右横滚</small>
                     </button>
                     <button type="button" class="scenario-btn" data-tw="volume">
                       <strong>系统主音量调节</strong>
-                      <small>上拨: 音量增加 · 下拨: 音量减小</small>
+                      <small class="sc-sub" data-m618="上拨: 音量增加 · 下拨: 音量减小" data-w1="按住前进+滚轮: 音量加减 · 单击前进">上拨: 音量增加 · 下拨: 音量减小</small>
                     </button>
                     <button type="button" class="scenario-btn" data-tw="timeline">
                       <strong>视频时间轴快进快退</strong>
-                      <small>上拨: 左方向键 · 下拨: 右方向键</small>
+                      <small class="sc-sub" data-m618="上拨: 左方向键 · 下拨: 右方向键" data-w1="按住前进+滚轮: 左右快进退 · 单击前进">上拨: 左方向键 · 下拨: 右方向键</small>
                     </button>
                     <button type="button" class="scenario-btn" data-tw="workspace">
                       <strong>Linux 桌面工作区切换</strong>
-                      <small>上拨: 上一桌面 · 下拨: 下一桌面</small>
+                      <small class="sc-sub" data-m618="上拨: 上一桌面 · 下拨: 下一桌面" data-w1="按住前进+滚轮: 切换工作区 · 单击前进">上拨: 上一桌面 · 下拨: 下一桌面</small>
                     </button>
                   </div>
                 </div>
@@ -346,7 +347,7 @@
                     </label>
                     <input type="range" class="hw-range" id="rng-ptr-scale" min="0.3" max="2.2" step="0.05" value="1.0" />
                   </div>
-                  <div>
+                  <div id="wrap-thumb-spd">
                     <label style="font-size:12px;color:var(--text-sec);display:flex;justify-content:space-between;margin-bottom:6px;">
                       <span>拇指横向滚动步进倍率</span>
                       <strong id="lbl-thumb-spd" style="font-family:var(--font-mono);color:var(--accent-cyan);">1.50x</strong>
@@ -354,11 +355,11 @@
                     <input type="range" class="hw-range" id="rng-thumb-spd" min="0.5" max="5.0" step="0.25" value="1.5" />
                   </div>
                   <div style="display:flex;flex-direction:column;gap:6px;justify-content:center;">
-                    <label style="font-size:12px;color:var(--text-main);display:flex;align-items:center;gap:8px;cursor:pointer;">
+                    <label id="wrap-thumb-inv" style="font-size:12px;color:var(--text-main);display:flex;align-items:center;gap:8px;cursor:pointer;">
                       <input type="checkbox" id="chk-thumb-inv" /> 反转左侧拇指滚轮方向
                     </label>
                     <label style="font-size:12px;color:var(--text-main);display:flex;align-items:center;gap:8px;cursor:pointer;">
-                      <input type="checkbox" id="chk-wheel-inv" /> 反转右侧垂直主滚轮方向
+                      <input type="checkbox" id="chk-wheel-inv" /> 反转垂直主滚轮方向 (自然滚动)
                     </label>
                   </div>
                 </div>
@@ -374,16 +375,16 @@
           <div class="hw-panel accent-top">
             <div class="panel-header">
               <div>
-                <span class="panel-tag">PAW OPTICAL SENSOR // REPORT 0x04</span>
-                <h2>5 档硬件 DPI 灵敏度矩阵 (400 – 4000 DPI)</h2>
-                <p class="panel-sub">参数直接烧录至鼠标光学传感器寄存器，顶部 OLED 屏幕同步显示当前档位数值</p>
+                <span class="panel-tag" id="dpi-panel-tag">PAW OPTICAL SENSOR // REPORT 0x04</span>
+                <h2 id="dpi-panel-title">5 档硬件 DPI 灵敏度矩阵 (400 – 4000 DPI)</h2>
+                <p class="panel-sub" id="dpi-panel-sub">参数直接烧录至鼠标光学传感器寄存器，顶部 OLED 屏幕同步显示当前档位数值</p>
               </div>
-              <button type="button" class="hw-btn primary" id="btn-apply-dpi">写入传感器 DPI</button>
+              <button type="button" class="hw-btn primary" id="btn-apply-dpi">写入传感器灵敏度</button>
             </div>
             <div class="dpi-stages-grid" id="dpi-stages-box"></div>
           </div>
 
-          <div style="display:grid;grid-template-columns:1.35fr 1fr;gap:14px;margin-top:14px;">
+          <div id="delux-poll-debounce-row" style="display:grid;grid-template-columns:1.35fr 1fr;gap:14px;margin-top:14px;">
             <div class="hw-panel">
               <div class="panel-header">
                 <div>
@@ -423,28 +424,38 @@
               </div>
             </div>
           </div>
+
+          <div class="hw-panel" id="inphic-sensor-note" style="display:none;margin-top:14px;">
+            <div class="panel-header" style="margin-bottom:4px;">
+              <div>
+                <span class="panel-tag">INSTANT A704 OPTICAL ENGINE // USB WIRED</span>
+                <h3>Inphic W1 光学引擎说明与精细调速联动</h3>
+                <p class="panel-sub">W1 搭载 Instant A704 游戏级有线光学主控，原生支持 400–4800 CPI 硬件档位调节（顶部物理 CPI 键同步触发中断通知），回报率固定为原生 USB 低延迟直通。若需更细颗粒度的速度微调，可在「02 按键与应用配置」中按每个软件单独设置 0.30x – 2.20x 指针倍率或绑定按住 Sniper 微操键。</p>
+              </div>
+            </div>
+          </div>
         </section>
 
         <!-- ==============================================================
-             04 / REAR HONEYCOMB RGB & POWER SLEEP MANAGEMENT
+             04 / REAR HONEYCOMB RGB / INPHIC BREATHING LED & POWER
              ============================================================== -->
         <section class="view-pane" id="pane-rgb">
           <div class="hw-panel accent-top">
             <div class="panel-header">
               <div>
-                <span class="panel-tag">REAR HONEYCOMB LED // REPORT 0x05</span>
-                <h2>尾部蜂巢背光模式与色彩控制</h2>
-                <p class="panel-sub">点击模式立即同步至鼠标硬件与总览页 3D 模型；支持单色自定义、亮度与动态速度调节</p>
+                <span class="panel-tag" id="rgb-panel-tag">REAR HONEYCOMB LED // REPORT 0x05</span>
+                <h2 id="rgb-panel-title">尾部蜂巢背光模式与色彩控制</h2>
+                <p class="panel-sub" id="rgb-panel-sub">点击模式立即同步至鼠标硬件与总览页 3D 模型；支持单色自定义、亮度与动态速度调节</p>
               </div>
-              <button type="button" class="hw-btn primary" id="btn-apply-rgb">写入灯光与休眠配置</button>
+              <button type="button" class="hw-btn primary" id="btn-apply-rgb">写入灯光配置</button>
             </div>
 
             <div class="rgb-modes-grid" id="rgb-modes-box"></div>
 
-            <div style="display:grid;grid-template-columns:1.1fr 1fr;gap:14px;margin-top:14px;">
+            <div id="rgb-extra-controls" style="display:grid;grid-template-columns:1.1fr 1fr;gap:14px;margin-top:14px;">
               <div style="padding:12px 14px;background:var(--bg-input);border:1px solid var(--border-subtle);border-radius:var(--radius-sm);">
                 <div class="section-label" style="margin-bottom:6px;">
-                  <span>单色常亮 / 单色呼吸 自定义 RGB 色板</span>
+                  <span id="lbl-rgb-swatch-title">单色常亮 / 单色呼吸 自定义 RGB 色板</span>
                 </div>
                 <div class="swatch-row" id="rgb-swatches">
                   <div class="color-swatch" data-hex="#00e5ff" style="background:#00e5ff;" title="冰川青"></div>
@@ -459,7 +470,7 @@
                 </div>
               </div>
 
-              <div style="padding:12px 14px;background:var(--bg-input);border:1px solid var(--border-subtle);border-radius:var(--radius-sm);display:flex;flex-direction:column;gap:12px;">
+              <div id="rgb-sliders-card" style="padding:12px 14px;background:var(--bg-input);border:1px solid var(--border-subtle);border-radius:var(--radius-sm);display:flex;flex-direction:column;gap:12px;">
                 <div>
                   <div style="display:flex;justify-content:space-between;font-size:12px;margin-bottom:5px;">
                     <span style="color:var(--text-sec);">背光亮度等级 (1 – 8)</span>
@@ -478,7 +489,7 @@
             </div>
           </div>
 
-          <div class="hw-panel" style="margin-top:14px;">
+          <div class="hw-panel" id="delux-sleep-panel" style="margin-top:14px;">
             <div class="panel-header">
               <div>
                 <span class="panel-tag">POWER SAVING // DUAL-STAGE SLEEP</span>
@@ -503,31 +514,41 @@
               </div>
             </div>
           </div>
+
+          <div class="hw-panel" id="inphic-power-note" style="display:none;margin-top:14px;">
+            <div class="panel-header" style="margin-bottom:4px;">
+              <div>
+                <span class="panel-tag">SRAM AUTO-PERSISTENCE // 断电自动记忆</span>
+                <h3>USB 有线常供电与开机自动恢复机制</h3>
+                <p class="panel-sub">英菲克 W1 采用有线常供电架构，无需休眠且零唤醒延迟。由于 Instant A704 芯片内部使用易失性 SRAM 寄存器，本驱动后台守护服务会将您的 CPI 档位与灯光配置持久保存于本地，并在每次开机或重新插拔鼠标时自动静默下发恢复。</p>
+              </div>
+            </div>
+          </div>
         </section>
 
         <!-- ==============================================================
-             05 / ONBOARD FLASH REGISTER MAP & LIVE DAEMON LOGS
+             05 / ONBOARD FLASH / HARDWARE REGISTER MAP & LIVE DAEMON LOGS
              ============================================================== -->
         <section class="view-pane" id="pane-onboard">
           <div style="display:grid;grid-template-columns:1.28fr 1fr;gap:14px;">
             <div class="hw-panel accent-top">
               <div class="panel-header">
                 <div>
-                  <span class="panel-tag">ONBOARD FLASH MEMORY // REPORT 0x08</span>
-                  <h2>板载 Flash 芯片硬件按键直写</h2>
-                  <p class="panel-sub">直接烧录进鼠标硬件芯片，脱离驱动依然生效。提示：若使用 02 分区的「按应用自动切方案」或「四向手势」，建议此处侧键与拇指轮保持原厂默认</p>
+                  <span class="panel-tag" id="ob-panel-tag">ONBOARD FLASH MEMORY // REPORT 0x08</span>
+                  <h2 id="ob-panel-title">硬件芯片按键寄存器直写</h2>
+                  <p class="panel-sub" id="ob-panel-sub">直接下发至鼠标硬件主控芯片。提示：若使用 02 分区的「按应用自动切方案」或「侧键+滚轮 / 四向手势」，建议此处前/后侧键与滚轮保持原厂默认，由智能守护引擎动态接管</p>
                 </div>
               </div>
 
               <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;gap:10px;flex-wrap:wrap;">
-                <div style="display:flex;align-items:center;gap:8px;">
+                <div id="ob-prof-sel-wrap" style="display:flex;align-items:center;gap:8px;">
                   <span style="font-size:12px;color:var(--text-sec);">当前板载配置槽位:</span>
                   <select class="cyber-select" id="sel-onboard-prof" style="width:190px;">
                     <option value="1">板载配置槽 Profile #1</option>
                     <option value="2">板载配置槽 Profile #2</option>
                   </select>
                 </div>
-                <button type="button" class="hw-btn primary sm" id="btn-write-onboard">烧录至板载芯片</button>
+                <button type="button" class="hw-btn primary sm" id="btn-write-onboard">写入硬件芯片</button>
               </div>
 
               <table class="onboard-table">
@@ -535,8 +556,8 @@
                   <tr>
                     <th>槽位</th>
                     <th>物理按键 / 滚轮</th>
-                    <th>板载硬件功能</th>
-                    <th>硬件组合键</th>
+                    <th>硬件主控动作</th>
+                    <th class="ob-combo-col">硬件组合键</th>
                   </tr>
                 </thead>
                 <tbody id="onboard-tbody"></tbody>

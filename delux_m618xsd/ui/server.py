@@ -1,4 +1,4 @@
-"""Localhost threaded HTTP/JSON bridge between the WebKit2 Cyber Studio UI and M618XSD hardware/daemon."""
+"""Localhost threaded HTTP/JSON bridge between the WebKit2 Control Center UI and Delux M618XSD / Inphic W1 hardware & daemon."""
 
 from __future__ import annotations
 
@@ -26,8 +26,23 @@ from ..config.profiles import (
     save_config,
 )
 from ..daemon.engine import query_daemon
+from ..daemon.linux_input import list_supported_mouse_evdev
 from ..daemon.window_tracker import ActiveWindowTracker
 from ..hardware import protocol as hp
+from ..hardware.inphic_w1 import (
+    INPHIC_ACTION_CODE_BY_KEY,
+    INPHIC_BACKUP_PATH,
+    INPHIC_FIRMWARE_ACTIONS,
+    INPHIC_LIGHT_CODE_BY_KEY,
+    INPHIC_LIGHT_MODES,
+    INPHIC_SLOTS,
+    InphicW1Session,
+    InphicW1State,
+    list_inphic_w1_nodes,
+    load_inphic_state,
+    save_inphic_state,
+    snap_inphic_cpi,
+)
 from ..hardware.session import M618XSDSession, SessionError, list_m618xsd_nodes
 
 WEB_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "web")
@@ -37,23 +52,60 @@ FACTORY_BACKUP_PATH = os.path.join(PROJECT_ROOT, "factory_backup.json")
 USER_BACKUP_PATH = os.path.join(CONFIG_DIR, "user_hardware_backup.json")
 HW_CACHE_PATH = os.path.join(CONFIG_DIR, "last_hw_cache.json")
 
+BINDABLE_INPUTS_W1: dict[str, str] = {
+    "forward": "前进侧键 (Forward)",
+    "backward": "后退侧键 (Backward)",
+    "middle": "滚轮中键 (Middle Click)",
+}
+
+MODEL_CAPABILITIES: dict[str, dict[str, Any]] = {
+    "delux_m618xsd": {
+        "has_thumb_wheel": True,
+        "has_battery": True,
+        "has_polling": True,
+        "has_debounce": True,
+        "has_sleep": True,
+        "has_rgb_color": True,
+        "has_hw_combos": True,
+        "dpi_stages": 5,
+        "dpi_min": 400,
+        "dpi_max": 4000,
+        "dpi_step": 50,
+    },
+    "inphic_w1": {
+        "has_thumb_wheel": False,
+        "has_battery": False,
+        "has_polling": False,
+        "has_debounce": False,
+        "has_sleep": False,
+        "has_rgb_color": False,
+        "has_hw_combos": False,
+        "dpi_stages": 4,
+        "dpi_min": 400,
+        "dpi_max": 4800,
+        "dpi_step": 400,
+    },
+}
+
 
 class StudioBackendState:
-    """Thread-safe coordinator for hardware reads/writes and smart daemon IPC."""
+    """Thread-safe coordinator for multi-mouse hardware reads/writes and smart daemon IPC."""
 
     def __init__(self) -> None:
         self.lock = threading.Lock()
         self.token = secrets.token_hex(16)
         self.window_tracker = ActiveWindowTracker(cache_ttl=0.08)
-        self._last_wakeup_probe = 0.0
-        # Raw objects retained so partial updates preserve sensor bytes / low nibbles
+
+        cfg = load_config(CONFIG_PATH)
+        self.selected_model: str = cfg.preferred_model if cfg.preferred_model in ("auto", "delux_m618xsd", "inphic_w1") else "auto"
+
+        # Delux M618XSD state objects
         self._dpi_obj: hp.DpiSettings = hp.DpiSettings()
         self._light_obj: hp.LightingSettings = hp.LightingSettings()
         self._poll_obj: hp.PollingRate = hp.PollingRate()
         self._btn_obj: hp.ButtonSettings = hp.ButtonSettings()
         self._prof_obj: hp.ProfileSettings = hp.ProfileSettings()
 
-        # Preload factory or user snapshot so UI tables are populated even if mouse is in wireless sleep
         for snap_path in (USER_BACKUP_PATH, FACTORY_BACKUP_PATH):
             if os.path.exists(snap_path):
                 try:
@@ -89,7 +141,11 @@ class StudioBackendState:
             except Exception:
                 pass
 
-        self.hw_cache: dict[str, Any] = {
+        self._delux_cache: dict[str, Any] = {
+            "model": "delux_m618xsd",
+            "model_name": "DELUX M618XSD",
+            "connection_type": "wireless_24g",
+            "capabilities": MODEL_CAPABILITIES["delux_m618xsd"],
             "connected": False,
             "sleeping": False,
             "node": "",
@@ -100,18 +156,108 @@ class StudioBackendState:
             "dpi": self._dpi_obj.to_dict(),
             "lighting": self._light_obj.to_dict(),
             "polling": self._poll_obj.to_dict(),
-            "buttons": self._serialize_buttons(self._btn_obj),
+            "buttons": self._serialize_delux_buttons(self._btn_obj),
             "battery": cached_bat,
         }
 
+        # Inphic W1 state
+        self._inphic_state: InphicW1State = load_inphic_state()
+
+    def resolve_active_model(self) -> str:
+        if self.selected_model in ("delux_m618xsd", "inphic_w1"):
+            return self.selected_model
+        if list_m618xsd_nodes():
+            return "delux_m618xsd"
+        if list_inphic_w1_nodes():
+            return "inphic_w1"
+        ev_nodes = list_supported_mouse_evdev()
+        if ev_nodes:
+            return ev_nodes[0].model_key
+        st = query_daemon("status")
+        if st and st.get("device_model") in ("delux_m618xsd", "inphic_w1"):
+            return str(st["device_model"])
+        return "delux_m618xsd"
+
+    def _build_inphic_hw_dict(self, error: str = "") -> dict[str, Any]:
+        self._inphic_state = load_inphic_state()
+        inodes = list_inphic_w1_nodes()
+        ev_nodes = [n for n in list_supported_mouse_evdev() if n.model_key == "inphic_w1"]
+        connected = bool(inodes or ev_nodes)
+        node_str = inodes[0].path if inodes else (ev_nodes[0].path if ev_nodes else "")
+        if not connected and not error:
+            error = "未检测到英菲克 Inphic W1 (30fa:1701)，请确认 USB 已连接。"
+        elif connected and not inodes and not error:
+            error = "已识别到 Inphic W1 USB 鼠标，但尚未获取 /dev/hidraw* 访问权限，请运行 udev 权限安装脚本。"
+        return {
+            "model": "inphic_w1",
+            "model_selection": self.selected_model,
+            "model_name": "INPHIC W1",
+            "connection_type": "wired_usb",
+            "capabilities": MODEL_CAPABILITIES["inphic_w1"],
+            "connected": connected,
+            "sleeping": False,
+            "node": node_str,
+            "firmware": "Instant A704 (USB)",
+            "error": error,
+            "last_sync": time.time(),
+            "profile_settings": {"current": 1, "maximum": 1},
+            "dpi": self._inphic_state.to_dpi_dict(),
+            "lighting": self._inphic_state.to_lighting_dict(),
+            "polling": {"hz": 125},
+            "buttons": self._inphic_state.to_buttons_dict(),
+            "battery": {
+                "percent": 100,
+                "state": 2,
+                "state_label": "USB 有线直连供电",
+                "charging": False,
+                "wired": True,
+            },
+        }
+
+    def get_current_hardware_view(self) -> dict[str, Any]:
+        model = self.resolve_active_model()
+        if model == "inphic_w1":
+            return self._build_inphic_hw_dict()
+        out = dict(self._delux_cache)
+        out["model_selection"] = self.selected_model
+        return out
+
+    def select_device_model(self, model_sel: str) -> dict[str, Any]:
+        if model_sel not in ("auto", "delux_m618xsd", "inphic_w1"):
+            raise ValueError(f"不支持的设备选择: {model_sel}")
+        with self.lock:
+            self.selected_model = model_sel
+            cfg = load_config(CONFIG_PATH)
+            cfg.preferred_model = model_sel
+            save_config(cfg, CONFIG_PATH)
+        query_daemon("reload")
+        self.refresh_hardware(fast=True)
+        return self.full_state_payload()
+
     def refresh_hardware(self, profile: int | None = None, fast: bool = False) -> dict[str, Any]:
+        model = self.resolve_active_model()
+        if model == "inphic_w1":
+            with self.lock:
+                inodes = list_inphic_w1_nodes()
+                err = ""
+                if inodes and not fast and self._inphic_state.user_configured:
+                    try:
+                        with InphicW1Session(node=inodes[0]) as sess:
+                            sess.write_dpi(self._inphic_state)
+                            sess.write_lighting(self._inphic_state)
+                    except Exception as exc:
+                        err = str(exc)
+                return self._build_inphic_hw_dict(error=err)
+
         with self.lock:
             nodes = list_m618xsd_nodes()
             if not nodes:
-                self.hw_cache["connected"] = False
-                self.hw_cache["sleeping"] = False
-                self.hw_cache["error"] = "未检测到多彩 M618XSD (1d57:fa60)，请插入 2.4G 接收器或连接 USB 数据线。"
-                return dict(self.hw_cache)
+                self._delux_cache["connected"] = False
+                self._delux_cache["sleeping"] = False
+                self._delux_cache["error"] = "未检测到多彩 M618XSD (1d57:fa60)，请插入 2.4G 接收器或切换至当前已连接鼠标。"
+                out = dict(self._delux_cache)
+                out["model_selection"] = self.selected_model
+                return out
             tries = 0 if fast else 1
             g_delay = 0.14 if fast else 0.18
             s_delay = 0.04 if fast else 0.05
@@ -132,7 +278,7 @@ class StudioBackendState:
                     self._poll_obj = poll
                     self._btn_obj = btns
 
-                    bat_dict = self.hw_cache.get("battery") or {
+                    bat_dict = self._delux_cache.get("battery") or {
                         "percent": None,
                         "state": 1,
                         "state_label": "无线在线",
@@ -146,7 +292,11 @@ class StudioBackendState:
                             "charging": bat.charging,
                         }
 
-                    self.hw_cache = {
+                    self._delux_cache = {
+                        "model": "delux_m618xsd",
+                        "model_name": "DELUX M618XSD",
+                        "connection_type": "wireless_24g",
+                        "capabilities": MODEL_CAPABILITIES["delux_m618xsd"],
                         "connected": True,
                         "sleeping": False,
                         "node": sess.node.path,
@@ -160,7 +310,7 @@ class StudioBackendState:
                         "dpi": dpi.to_dict(),
                         "lighting": light.to_dict(),
                         "polling": poll.to_dict(),
-                        "buttons": self._serialize_buttons(btns),
+                        "buttons": self._serialize_delux_buttons(btns),
                         "battery": bat_dict,
                     }
                     try:
@@ -170,14 +320,15 @@ class StudioBackendState:
                     except OSError:
                         pass
             except (SessionError, OSError, ValueError) as exc:
-                self.hw_cache["connected"] = bool(nodes)
-                self.hw_cache["sleeping"] = bool(nodes)
-                self.hw_cache["node"] = nodes[0].path if nodes else ""
-                # Do not spam warning banner during normal 30s wireless RF standby on initial fast probe
-                self.hw_cache["error"] = "" if fast else str(exc)
-            return dict(self.hw_cache)
+                self._delux_cache["connected"] = bool(nodes)
+                self._delux_cache["sleeping"] = bool(nodes)
+                self._delux_cache["node"] = nodes[0].path if nodes else ""
+                self._delux_cache["error"] = "" if fast else str(exc)
+            out = dict(self._delux_cache)
+            out["model_selection"] = self.selected_model
+            return out
 
-    def _serialize_buttons(self, btns: hp.ButtonSettings) -> dict[str, Any]:
+    def _serialize_delux_buttons(self, btns: hp.ButtonSettings) -> dict[str, Any]:
         slots_out = []
         for slot_num, label in hp.M618XSD_SLOTS.items():
             sl = btns.slot(slot_num)
@@ -201,45 +352,91 @@ class StudioBackendState:
         return {"profile": btns.profile, "slots": slots_out}
 
     def apply_dpi(self, payload: dict[str, Any]) -> dict[str, Any]:
+        model = self.resolve_active_model()
+        if model == "inphic_w1":
+            with self.lock:
+                st = load_inphic_state()
+                st.user_configured = True
+                st.current_stage = max(1, min(4, int(payload.get("current_stage", st.current_stage))))
+                for item in payload.get("stages") or []:
+                    idx = int(item.get("stage", 0)) - 1
+                    if 0 <= idx < 4:
+                        st.stages_enabled[idx] = bool(item.get("enabled", True))
+                        st.stages_cpi[idx] = snap_inphic_cpi(int(item.get("dpi", st.stages_cpi[idx])))
+                        rgb = item.get("rgb")
+                        if isinstance(rgb, list) and len(rgb) == 3:
+                            st.stages_rgb[idx] = [max(0, min(255, int(c))) for c in rgb]
+                if not any(st.stages_enabled):
+                    st.stages_enabled[st.current_stage - 1] = True
+                if not st.stages_enabled[st.current_stage - 1]:
+                    for idx in range(4):
+                        if st.stages_enabled[idx]:
+                            st.current_stage = idx + 1
+                            break
+                with InphicW1Session() as sess:
+                    sess.write_dpi(st)
+                save_inphic_state(st)
+                self._inphic_state = st
+                return {"ok": True, "dpi": st.to_dpi_dict()}
+
         with self.lock:
             dpi = self._dpi_obj
             current_stage = int(payload.get("current_stage", dpi.current_stage))
             dpi.current_stage = max(1, min(5, current_stage))
             stages = payload.get("stages") or []
             for item in stages:
-                st = int(item.get("stage", 0))
-                if 1 <= st <= 5:
-                    dpi.set_stage_enabled(st, bool(item.get("enabled", True)))
-                    dpi.set_stage_dpi(st, int(item.get("dpi", dpi.dpi[st - 1])))
+                st_num = int(item.get("stage", 0))
+                if 1 <= st_num <= 5:
+                    dpi.set_stage_enabled(st_num, bool(item.get("enabled", True)))
+                    dpi.set_stage_dpi(st_num, int(item.get("dpi", dpi.dpi[st_num - 1])))
                     rgb = item.get("rgb")
                     if isinstance(rgb, list) and len(rgb) == 3:
-                        dpi.colors[st - 1] = (
+                        dpi.colors[st_num - 1] = (
                             max(0, min(255, int(rgb[0]))),
                             max(0, min(255, int(rgb[1]))),
                             max(0, min(255, int(rgb[2]))),
                         )
             if not dpi.stage_enabled(dpi.current_stage):
-                for st in range(1, 6):
-                    if dpi.stage_enabled(st):
-                        dpi.current_stage = st
+                for st_num in range(1, 6):
+                    if dpi.stage_enabled(st_num):
+                        dpi.current_stage = st_num
                         break
             with M618XSDSession() as sess:
                 sess.write_dpi(dpi, refresh_lighting=self._light_obj)
-            self.hw_cache["dpi"] = dpi.to_dict()
-            self.hw_cache["error"] = ""
-            return {"ok": True, "dpi": self.hw_cache["dpi"]}
+            self._delux_cache["dpi"] = dpi.to_dict()
+            self._delux_cache["error"] = ""
+            return {"ok": True, "dpi": self._delux_cache["dpi"]}
 
     def apply_polling(self, payload: dict[str, Any]) -> dict[str, Any]:
+        if self.resolve_active_model() == "inphic_w1":
+            return {"ok": True, "polling": {"hz": 125}}
         with self.lock:
             hz = int(payload.get("hz", 250))
             self._poll_obj.hz = hz
             with M618XSDSession() as sess:
                 sess.write_polling(self._poll_obj)
-            self.hw_cache["polling"] = self._poll_obj.to_dict()
-            self.hw_cache["error"] = ""
-            return {"ok": True, "polling": self.hw_cache["polling"]}
+            self._delux_cache["polling"] = self._poll_obj.to_dict()
+            self._delux_cache["error"] = ""
+            return {"ok": True, "polling": self._delux_cache["polling"]}
 
     def apply_lighting(self, payload: dict[str, Any]) -> dict[str, Any]:
+        model = self.resolve_active_model()
+        if model == "inphic_w1":
+            with self.lock:
+                st = load_inphic_state()
+                st.user_configured = True
+                if "mode" in payload and int(payload["mode"]) in INPHIC_LIGHT_MODES:
+                    st.light_mode = int(payload["mode"])
+                elif "mode_key" in payload and payload["mode_key"] in INPHIC_LIGHT_CODE_BY_KEY:
+                    st.light_mode = INPHIC_LIGHT_CODE_BY_KEY[payload["mode_key"]]
+                if "rgb" in payload and isinstance(payload["rgb"], list) and len(payload["rgb"]) == 3:
+                    st.light_rgb = [max(0, min(255, int(c))) for c in payload["rgb"]]
+                with InphicW1Session() as sess:
+                    sess.write_lighting(st)
+                save_inphic_state(st)
+                self._inphic_state = st
+                return {"ok": True, "lighting": st.to_lighting_dict()}
+
         with self.lock:
             lt = self._light_obj
             if "mode" in payload:
@@ -261,11 +458,29 @@ class StudioBackendState:
                 lt.debounce_ms = max(4, min(50, int(round(int(payload["debounce_ms"]) / 2) * 2)))
             with M618XSDSession() as sess:
                 sess.write_lighting(lt)
-            self.hw_cache["lighting"] = lt.to_dict()
-            self.hw_cache["error"] = ""
-            return {"ok": True, "lighting": self.hw_cache["lighting"]}
+            self._delux_cache["lighting"] = lt.to_dict()
+            self._delux_cache["error"] = ""
+            return {"ok": True, "lighting": self._delux_cache["lighting"]}
 
     def apply_onboard_buttons(self, payload: dict[str, Any]) -> dict[str, Any]:
+        model = self.resolve_active_model()
+        if model == "inphic_w1":
+            with self.lock:
+                st = load_inphic_state()
+                st.user_configured = True
+                for item in payload.get("slots", []):
+                    slot_num = int(item.get("slot", 0))
+                    act_key = str(item.get("action_key", ""))
+                    if slot_num in INPHIC_SLOTS and act_key in INPHIC_ACTION_CODE_BY_KEY:
+                        if slot_num == 1:
+                            continue  # Protect primary left-click
+                        st.button_actions[slot_num] = act_key
+                with InphicW1Session() as sess:
+                    sess.write_buttons(st)
+                save_inphic_state(st)
+                self._inphic_state = st
+                return {"ok": True, "buttons": st.to_buttons_dict()}
+
         with self.lock:
             btns = self._btn_obj
             for item in payload.get("slots", []):
@@ -285,14 +500,21 @@ class StudioBackendState:
                     sess.write_profile_settings(self._prof_obj)
                     time.sleep(0.08)
                 sess.write_buttons(btns)
-            self.hw_cache["buttons"] = self._serialize_buttons(btns)
-            self.hw_cache["profile_settings"] = {
+            self._delux_cache["buttons"] = self._serialize_delux_buttons(btns)
+            self._delux_cache["profile_settings"] = {
                 "current": self._prof_obj.current,
                 "maximum": self._prof_obj.maximum,
             }
-            return {"ok": True, "buttons": self.hw_cache["buttons"]}
+            return {"ok": True, "buttons": self._delux_cache["buttons"]}
 
     def backup_hardware(self) -> dict[str, Any]:
+        model = self.resolve_active_model()
+        if model == "inphic_w1":
+            with self.lock:
+                st = load_inphic_state()
+                save_inphic_state(st, path=INPHIC_BACKUP_PATH)
+                return {"ok": True, "path": INPHIC_BACKUP_PATH}
+
         with self.lock:
             os.makedirs(CONFIG_DIR, exist_ok=True)
             dump: dict[str, str] = {}
@@ -305,6 +527,22 @@ class StudioBackendState:
             return {"ok": True, "path": USER_BACKUP_PATH}
 
     def restore_hardware(self, source: str = "factory") -> dict[str, Any]:
+        model = self.resolve_active_model()
+        if model == "inphic_w1":
+            with self.lock:
+                if source == "factory":
+                    st = InphicW1State(user_configured=True)
+                else:
+                    if not os.path.exists(INPHIC_BACKUP_PATH):
+                        raise RuntimeError(f"未找到 Inphic W1 备份文件: {INPHIC_BACKUP_PATH}")
+                    st = load_inphic_state(path=INPHIC_BACKUP_PATH)
+                    st.user_configured = True
+                with InphicW1Session() as sess:
+                    sess.write_all(st)
+                save_inphic_state(st)
+                self._inphic_state = st
+            return {"ok": True, "restored": ["0x07"], "hardware": self._build_inphic_hw_dict()}
+
         path = FACTORY_BACKUP_PATH if source == "factory" else USER_BACKUP_PATH
         if not os.path.exists(path):
             raise RuntimeError(f"未找到备份文件: {path}")
@@ -328,6 +566,7 @@ class StudioBackendState:
             "per_app_enabled": cfg.per_app_enabled,
             "device_path": "",
             "device_name": "",
+            "device_model": "",
             "grabbed": False,
             "window": {
                 "app_id": win.app_id,
@@ -337,7 +576,7 @@ class StudioBackendState:
                 "label": win.display_label(),
             },
             "active_profile": {"id": prof.id, "name": prof.name},
-            "logs": ["守护进程当前未运行 — 点击右上角「启动守护引擎」即可激活应用自动切换与手势。"],
+            "logs": ["守护进程当前未运行 — 点击右上角「启动守护进程」即可激活应用自动切换与多功能手势。"],
         }
 
     def control_daemon(self, action: str) -> dict[str, Any]:
@@ -374,6 +613,7 @@ class StudioBackendState:
 
     def save_driver_config(self, data: dict[str, Any]) -> dict[str, Any]:
         cfg = DriverConfig.from_dict(data)
+        cfg.preferred_model = self.selected_model
         save_config(cfg, CONFIG_PATH)
         st = query_daemon("reload")
         return {
@@ -387,7 +627,6 @@ class StudioBackendState:
         running: list[dict[str, str]] = []
         seen_running: set[str] = set()
 
-        # 1. Live running windows via AT-SPI2 bus
         conn = self.window_tracker._ensure_a11y_bus()
         if conn is not None:
             try:
@@ -436,7 +675,6 @@ class StudioBackendState:
             except Exception:
                 pass
 
-        # 2. Installed desktop applications from /usr/share/applications
         installed_map: dict[str, dict[str, str]] = {}
         for droot in ("/usr/share/applications", os.path.expanduser("~/.local/share/applications")):
             for path in sorted(glob.glob(os.path.join(droot, "*.desktop"))):
@@ -500,30 +738,53 @@ class StudioBackendState:
             },
         }
 
-    def full_state_payload(self) -> dict[str, Any]:
-        cfg = load_config(CONFIG_PATH)
-        return {
-            "hardware": dict(self.hw_cache),
-            "daemon": self.daemon_status(),
-            "config": cfg.to_dict(),
-            "meta": {
-                "bindable_inputs": BINDABLE_INPUTS,
+    def _meta_for_model(self, model: str) -> dict[str, Any]:
+        if model == "inphic_w1":
+            return {
+                "bindable_inputs": BINDABLE_INPUTS_W1,
                 "action_presets": [
                     {"id": pid, "label": lbl, "spec": spec} for pid, lbl, spec in ACTION_PRESETS
                 ],
                 "light_modes": [
                     {"code": code, "key": key, "label": label}
-                    for code, (key, label) in hp.LIGHT_MODES.items()
+                    for code, (key, label) in INPHIC_LIGHT_MODES.items()
                 ],
                 "firmware_actions": [
                     {"code": code, "key": key, "label": label}
-                    for code, (key, label) in hp.FIRMWARE_ACTIONS.items()
-                    if code != 0x00
+                    for code, (key, label) in INPHIC_FIRMWARE_ACTIONS.items()
                 ],
-                "poll_rates": list(hp.POLL_RATES),
-                "has_factory_backup": os.path.exists(FACTORY_BACKUP_PATH),
-                "has_user_backup": os.path.exists(USER_BACKUP_PATH),
-            },
+                "poll_rates": [125],
+                "has_factory_backup": True,
+                "has_user_backup": os.path.exists(INPHIC_BACKUP_PATH),
+            }
+        return {
+            "bindable_inputs": BINDABLE_INPUTS,
+            "action_presets": [
+                {"id": pid, "label": lbl, "spec": spec} for pid, lbl, spec in ACTION_PRESETS
+            ],
+            "light_modes": [
+                {"code": code, "key": key, "label": label}
+                for code, (key, label) in hp.LIGHT_MODES.items()
+            ],
+            "firmware_actions": [
+                {"code": code, "key": key, "label": label}
+                for code, (key, label) in hp.FIRMWARE_ACTIONS.items()
+                if code != 0x00
+            ],
+            "poll_rates": list(hp.POLL_RATES),
+            "has_factory_backup": os.path.exists(FACTORY_BACKUP_PATH),
+            "has_user_backup": os.path.exists(USER_BACKUP_PATH),
+        }
+
+    def full_state_payload(self) -> dict[str, Any]:
+        cfg = load_config(CONFIG_PATH)
+        hw = self.get_current_hardware_view()
+        model = str(hw.get("model", "delux_m618xsd"))
+        return {
+            "hardware": hw,
+            "daemon": self.daemon_status(),
+            "config": cfg.to_dict(),
+            "meta": self._meta_for_model(model),
         }
 
 
@@ -537,7 +798,7 @@ def start_studio_server(backend: StudioBackendState) -> tuple[_ThreadedHTTPServe
 
     class Handler(http.server.BaseHTTPRequestHandler):
         def log_message(self, format: str, *args: Any) -> None:  # noqa: A002
-            return  # Keep stdout clean
+            return
 
         def _send_json(self, payload: dict[str, Any], status: int = 200) -> None:
             body = json.dumps(payload, ensure_ascii=False).encode("utf-8")
@@ -577,6 +838,7 @@ def start_studio_server(backend: StudioBackendState) -> tuple[_ThreadedHTTPServe
                 if not self._check_auth(parsed):
                     self.send_error(403)
                     return
+                backend.refresh_hardware(fast=True)
                 self._serve_file(WEB_DIR, "index.html")
                 return
             if path.startswith("/web/"):
@@ -596,23 +858,28 @@ def start_studio_server(backend: StudioBackendState) -> tuple[_ThreadedHTTPServe
                 return
             if path == "/api/telemetry":
                 daemon_st = backend.daemon_status()
-                d_bat = daemon_st.get("battery") if isinstance(daemon_st, dict) else None
-                if isinstance(d_bat, dict) and isinstance(d_bat.get("percent"), int):
-                    backend.hw_cache["battery"] = d_bat
+                hw_view = backend.get_current_hardware_view()
+                if hw_view.get("model") == "delux_m618xsd":
+                    d_bat = daemon_st.get("battery") if isinstance(daemon_st, dict) else None
+                    if isinstance(d_bat, dict) and isinstance(d_bat.get("percent"), int):
+                        backend._delux_cache["battery"] = d_bat
+                        hw_view["battery"] = d_bat
                 self._send_json(
                     {
                         "ok": True,
                         "daemon": daemon_st,
                         "hardware": {
-                            "connected": backend.hw_cache.get("connected", False),
-                            "sleeping": backend.hw_cache.get("sleeping", False),
-                            "node": backend.hw_cache.get("node", ""),
-                            "firmware": backend.hw_cache.get("firmware", "--"),
-                            "error": backend.hw_cache.get("error", ""),
-                            "battery": backend.hw_cache.get("battery"),
-                            "dpi": backend.hw_cache.get("dpi"),
-                            "lighting": backend.hw_cache.get("lighting"),
-                            "polling": backend.hw_cache.get("polling"),
+                            "model": hw_view.get("model"),
+                            "model_selection": hw_view.get("model_selection"),
+                            "connected": hw_view.get("connected", False),
+                            "sleeping": hw_view.get("sleeping", False),
+                            "node": hw_view.get("node", ""),
+                            "firmware": hw_view.get("firmware", "--"),
+                            "error": hw_view.get("error", ""),
+                            "battery": hw_view.get("battery"),
+                            "dpi": hw_view.get("dpi"),
+                            "lighting": hw_view.get("lighting"),
+                            "polling": hw_view.get("polling"),
                         },
                     }
                 )
@@ -633,7 +900,10 @@ def start_studio_server(backend: StudioBackendState) -> tuple[_ThreadedHTTPServe
 
             path = parsed.path
             try:
-                if path == "/api/hardware/refresh":
+                if path == "/api/device/select":
+                    state_out = backend.select_device_model(str(payload.get("model", "auto")))
+                    self._send_json({"ok": True, **state_out})
+                elif path == "/api/hardware/refresh":
                     hw = backend.refresh_hardware(
                         profile=payload.get("profile"),
                         fast=bool(payload.get("fast", False)),

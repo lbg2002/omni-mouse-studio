@@ -91,16 +91,25 @@ def _bits_set(buf: bytes | bytearray) -> set[int]:
     return out
 
 
+SUPPORTED_MOUSE_VIDS: dict[int, str] = {
+    0x1D57: "delux_m618xsd",  # Delux M618XSD (2.4G / Wired)
+    0x30FA: "inphic_w1",      # Inphic W1 (Instant A704 / A725 USB Gaming Mouse)
+    0x18F8: "inphic_w1",      # Instant A704F variant
+}
+
+
 @dataclass
 class EvdevMouseNode:
     path: str
     name: str
     vid: int
     pid: int
+    model_key: str = "delux_m618xsd"
 
 
-def find_m618xsd_mouse_evdev() -> EvdevMouseNode | None:
-    """Locate the physical 1d57:* mouse /dev/input/eventN node carrying BTN_LEFT + REL_X."""
+def list_supported_mouse_evdev() -> list[EvdevMouseNode]:
+    """Locate all connected physical mouse /dev/input/eventN nodes (Delux M618XSD & Inphic W1)."""
+    found: list[EvdevMouseNode] = []
     for path in sorted(glob.glob("/dev/input/event*"), key=lambda p: int(p.rsplit("event", 1)[1])):
         try:
             fd = os.open(path, os.O_RDONLY | os.O_NONBLOCK)
@@ -110,7 +119,8 @@ def find_m618xsd_mouse_evdev() -> EvdevMouseNode | None:
             id_buf = bytearray(8)
             fcntl.ioctl(fd, EVIOCGID(), id_buf, True)
             bustype, vendor, product, _ = struct.unpack("HHHH", id_buf)
-            if vendor != 0x1D57 or bustype == BUS_VIRTUAL:
+            model_key = SUPPORTED_MOUSE_VIDS.get(vendor)
+            if model_key is None or bustype == BUS_VIRTUAL:
                 continue
             ev_buf = bytearray(4)
             fcntl.ioctl(fd, EVIOCGBIT(0, 4), ev_buf, True)
@@ -127,12 +137,29 @@ def find_m618xsd_mouse_evdev() -> EvdevMouseNode | None:
                 name_buf = bytearray(256)
                 fcntl.ioctl(fd, EVIOCGNAME(256), name_buf, True)
                 name = bytes(name_buf).split(b"\x00", 1)[0].decode("utf-8", errors="replace")
-                return EvdevMouseNode(path=path, name=name, vid=vendor, pid=product)
+                found.append(EvdevMouseNode(path=path, name=name, vid=vendor, pid=product, model_key=model_key))
         except OSError:
             continue
         finally:
             os.close(fd)
-    return None
+    return found
+
+
+def find_supported_mouse_evdev(preferred_model: str | None = None) -> EvdevMouseNode | None:
+    """Return the preferred or first available supported physical mouse node."""
+    nodes = list_supported_mouse_evdev()
+    if not nodes:
+        return None
+    if preferred_model:
+        for n in nodes:
+            if n.model_key == preferred_model:
+                return n
+    return nodes[0]
+
+
+def find_m618xsd_mouse_evdev() -> EvdevMouseNode | None:
+    """Backward-compatible helper returning any supported mouse node."""
+    return find_supported_mouse_evdev()
 
 
 class PhysicalMouseReader:
