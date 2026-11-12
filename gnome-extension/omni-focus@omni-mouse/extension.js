@@ -5,7 +5,7 @@ import {Extension} from 'resource:///org/gnome/shell/extensions/extension.js';
 
 const DBUS_IFACE = `
 <node>
-  <interface name="org.delux.M618XSD.Focus">
+  <interface name="org.omnimouse.Studio.Focus">
     <method name="GetFocusedWindow">
       <arg type="s" direction="out" name="app_id"/>
       <arg type="s" direction="out" name="wm_class"/>
@@ -19,13 +19,13 @@ const DBUS_IFACE = `
   </interface>
 </node>`;
 
-export default class DeluxFocusExtension extends Extension {
+export default class OmniFocusExtension extends Extension {
     enable() {
         this._dbus = Gio.DBusExportedObject.wrapJSObject(DBUS_IFACE, this);
-        this._dbus.export(Gio.DBus.session, '/org/delux/M618XSD/Focus');
+        this._dbus.export(Gio.DBus.session, '/org/omnimouse/Studio/Focus');
         this._ownerId = Gio.bus_own_name_on_connection(
             Gio.DBus.session,
-            'org.delux.M618XSD.Focus',
+            'org.omnimouse.Studio.Focus',
             Gio.BusNameOwnerFlags.NONE,
             null,
             null

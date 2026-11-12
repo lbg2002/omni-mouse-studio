@@ -1,5 +1,5 @@
 #!/usr/bin/python3
-"""Command-Line Interface for Multi-Mouse Studio (Delux M618XSD & Inphic W1)."""
+"""Command-Line Interface for Omni Mouse Studio (Delux M618XSD & Inphic W1)."""
 
 from __future__ import annotations
 
@@ -9,15 +9,15 @@ import os
 import sys
 
 ROOT = os.path.dirname(os.path.realpath(__file__))
-for _candidate in (ROOT, "/usr/lib/delux-m618xsd"):
-    if os.path.isdir(os.path.join(_candidate, "delux_m618xsd")) and _candidate not in sys.path:
+for _candidate in (ROOT, "/usr/lib/omni-mouse-studio"):
+    if os.path.isdir(os.path.join(_candidate, "omni_mouse")) and _candidate not in sys.path:
         sys.path.insert(0, _candidate)
         ROOT = _candidate
         break
 
-from delux_m618xsd.config import CONFIG_PATH, load_config, save_config
-from delux_m618xsd.daemon import query_daemon
-from delux_m618xsd.hardware import (
+from omni_mouse.config import CONFIG_PATH, load_config, save_config
+from omni_mouse.daemon import query_daemon
+from omni_mouse.hardware import (
     INPHIC_LIGHT_MODES,
     LIGHT_MODES,
     InphicW1Session,
@@ -26,7 +26,7 @@ from delux_m618xsd.hardware import (
     find_m618xsd_node,
     list_inphic_w1_nodes,
 )
-from delux_m618xsd.hardware.inphic_w1 import is_inphic_config_node, load_inphic_state, save_inphic_state, snap_inphic_cpi
+from omni_mouse.hardware.inphic_w1 import is_inphic_config_node, load_inphic_state, save_inphic_state, snap_inphic_cpi
 
 
 def _parse_rgb(text: str) -> tuple[int, int, int]:
@@ -134,7 +134,7 @@ def cmd_status(args: argparse.Namespace) -> int:
         print(f"智能守护 : 运行中 (PID {dm['pid']}) | 接管设备: {dm['device_path'] or '待命'} ({dm.get('device_name') or '无'})")
         print(f"当前方案 : {dm['active_profile']['name']}  (窗口: {dm['window']['label']})")
     else:
-        print("智能守护 : 未运行 (可执行 ./m618xsd-daemon 启动)")
+        print("智能守护 : 未运行 (可执行 ./omni-mouse-daemon 启动)")
     return 0
 
 
@@ -223,7 +223,7 @@ def cmd_set_rgb(args: argparse.Namespace) -> int:
 
 def cmd_restore_factory(_args: argparse.Namespace) -> int:
     if _resolve_active_model() == "inphic_w1":
-        from delux_m618xsd.hardware import InphicW1State
+        from omni_mouse.hardware import InphicW1State
 
         st = InphicW1State(user_configured=True)
         with InphicW1Session() as session:

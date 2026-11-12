@@ -1,0 +1,16 @@
+#!/usr/bin/python3
+"""Run the ultra-low-resource Omni Mouse Smart Per-App & Gesture Daemon."""
+
+import os
+import sys
+
+for candidate in (os.path.dirname(os.path.realpath(__file__)), "/usr/lib/omni-mouse-studio"):
+    if os.path.isdir(os.path.join(candidate, "omni_mouse")) and candidate not in sys.path:
+        sys.path.insert(0, candidate)
+        break
+
+from omni_mouse.daemon import SmartMouseDaemon
+
+if __name__ == "__main__":
+    daemon = SmartMouseDaemon()
+    raise SystemExit(daemon.run())

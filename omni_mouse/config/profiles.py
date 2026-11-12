@@ -1,13 +1,24 @@
-"""Persistent configuration and Per-Application profile rules for Delux M618XSD Studio."""
+"""Persistent configuration and Per-Application profile rules for Omni Mouse Studio."""
 
 from __future__ import annotations
 
 import json
 import os
+import shutil
 from dataclasses import asdict, dataclass, field
 from typing import Any
 
-CONFIG_DIR = os.path.expanduser("~/.config/delux-m618xsd")
+CONFIG_DIR = os.path.expanduser("~/.config/omni-mouse-studio")
+_LEGACY_CONFIG_DIR = os.path.expanduser("~/.config/delux-m618xsd")
+if not os.path.exists(CONFIG_DIR) and os.path.isdir(_LEGACY_CONFIG_DIR):
+    try:
+        shutil.copytree(_LEGACY_CONFIG_DIR, CONFIG_DIR)
+        _sock = os.path.join(CONFIG_DIR, "daemon.sock")
+        if os.path.exists(_sock):
+            os.unlink(_sock)
+    except Exception:
+        pass
+
 CONFIG_PATH = os.path.join(CONFIG_DIR, "config.json")
 IPC_SOCKET_PATH = os.path.join(CONFIG_DIR, "daemon.sock")
 

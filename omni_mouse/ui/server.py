@@ -586,13 +586,13 @@ class StudioBackendState:
                 return res
         if action in ("start", "restart"):
             res = subprocess.run(
-                ["systemctl", "--user", "restart", "delux-m618xsd-daemon.service"],
+                ["systemctl", "--user", "restart", "omni-mouse-daemon.service"],
                 capture_output=True,
                 text=True,
                 check=False,
             )
             if res.returncode != 0:
-                daemon_bin = os.path.join(PROJECT_ROOT, "m618xsd-daemon")
+                daemon_bin = os.path.join(PROJECT_ROOT, "omni-mouse-daemon")
                 subprocess.Popen(
                     [sys.executable, daemon_bin],
                     stdout=subprocess.DEVNULL,
@@ -602,7 +602,7 @@ class StudioBackendState:
             time.sleep(0.55)
         elif action == "stop":
             subprocess.run(
-                ["systemctl", "--user", "stop", "delux-m618xsd-daemon.service"],
+                ["systemctl", "--user", "stop", "omni-mouse-daemon.service"],
                 capture_output=True,
                 text=True,
                 check=False,
@@ -665,7 +665,7 @@ class StudioBackendState:
                             continue
                         app_id, wm_class = self.window_tracker._resolve_a11y_sender_proc(conn, app_sender, app_name)
                         token = (app_id.split()[0] if app_id else wm_class).replace(".desktop", "").strip().lower()
-                        if not token or token in ("delux-m618xsd-studio", "m618xsd-studio", "python3"):
+                        if not token or token in ("omni-mouse-studio", "delux-m618xsd-studio", "m618xsd-studio", "python3"):
                             continue
                         if token not in seen_running:
                             seen_running.add(token)
@@ -716,7 +716,7 @@ class StudioBackendState:
                     if bin_clean.endswith(suffix):
                         bin_clean = bin_clean[: -len(suffix)]
                 disp = name_zh or name_en
-                if disp and bin_clean and bin_clean not in ("m618xsd-studio",):
+                if disp and bin_clean and bin_clean not in ("omni-mouse-studio", "m618xsd-studio"):
                     installed_map[bin_clean] = {"name": disp, "pattern": bin_clean}
 
         installed = sorted(installed_map.values(), key=lambda x: x["name"].lower())

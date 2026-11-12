@@ -141,23 +141,27 @@ class ActiveWindowTracker:
         bus = self._ensure_session_bus()
         if bus is None:
             return None
-        try:
-            res = bus.call_sync(
-                "org.delux.M618XSD.Focus",
-                "/org/delux/M618XSD/Focus",
-                "org.delux.M618XSD.Focus",
-                "GetFocusedWindow",
-                None,
-                GLib.VariantType("(sss)"),
-                Gio.DBusCallFlags.NO_AUTO_START,
-                60,
-                None,
-            )
-            app_id, wm_class, title = res.unpack()
-            if app_id or wm_class or title:
-                return WindowInfo(app_id=app_id, wm_class=wm_class, title=title, backend="gnome-extension")
-        except Exception:
-            pass
+        for svc, obj_path, iface in (
+            ("org.omnimouse.Studio.Focus", "/org/omnimouse/Studio/Focus", "org.omnimouse.Studio.Focus"),
+            ("org.delux.M618XSD.Focus", "/org/delux/M618XSD/Focus", "org.delux.M618XSD.Focus"),
+        ):
+            try:
+                res = bus.call_sync(
+                    svc,
+                    obj_path,
+                    iface,
+                    "GetFocusedWindow",
+                    None,
+                    GLib.VariantType("(sss)"),
+                    Gio.DBusCallFlags.NO_AUTO_START,
+                    60,
+                    None,
+                )
+                app_id, wm_class, title = res.unpack()
+                if app_id or wm_class or title:
+                    return WindowInfo(app_id=app_id, wm_class=wm_class, title=title, backend="gnome-extension")
+            except Exception:
+                continue
         return None
 
     def _resolve_a11y_sender_proc(self, conn: Gio.DBusConnection, sender: str, fallback_name: str) -> tuple[str, str]:

@@ -1,7 +1,0 @@
-{
-  "uuid": "delux-focus@m618xsd",
-  "name": "Delux M618XSD Window Focus Helper",
-  "description": "Exposes the focused Wayland window app-id, wm-class, and title over Session D-Bus for Delux M618XSD per-application mouse profiles.",
-  "shell-version": ["45", "46", "47", "48", "49", "50"],
-  "version": 1
-}

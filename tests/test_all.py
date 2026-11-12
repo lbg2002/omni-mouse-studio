@@ -12,10 +12,10 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if ROOT not in sys.path:
     sys.path.insert(0, ROOT)
 
-from delux_m618xsd.config.profiles import ActionSpec, DriverConfig
-from delux_m618xsd.hardware import protocol as hp
-from delux_m618xsd.hardware.keymap import parse_combo_to_evdev
-from delux_m618xsd.hardware.session import M618XSDSession, list_m618xsd_nodes
+from omni_mouse.config.profiles import ActionSpec, DriverConfig
+from omni_mouse.hardware import protocol as hp
+from omni_mouse.hardware.keymap import parse_combo_to_evdev
+from omni_mouse.hardware.session import M618XSDSession, list_m618xsd_nodes
 
 
 class TestM618XSDProtocol(unittest.TestCase):
@@ -102,8 +102,8 @@ class TestM618XSDProtocol(unittest.TestCase):
 
     def test_daemon_gesture_never_freezes_cursor_on_dropped_release(self) -> None:
         import time
-        from delux_m618xsd.daemon.engine import SmartMouseDaemon
-        from delux_m618xsd.daemon.linux_input import BTN_LEFT, BTN_SIDE, EV_KEY, EV_REL, EV_SYN, REL_X
+        from omni_mouse.daemon.engine import SmartMouseDaemon
+        from omni_mouse.daemon.linux_input import BTN_LEFT, BTN_SIDE, EV_KEY, EV_REL, EV_SYN, REL_X
 
         emitted: list[list[tuple[int, int, int]]] = []
         daemon = SmartMouseDaemon()
@@ -130,9 +130,9 @@ class TestM618XSDProtocol(unittest.TestCase):
         self.assertEqual(bat.percent, 73)
 
     def test_inphic_w1_protocol_and_virtual_side_wheel(self) -> None:
-        from delux_m618xsd.daemon.engine import SmartMouseDaemon
-        from delux_m618xsd.daemon.linux_input import BTN_EXTRA, EV_KEY, EV_REL, EV_SYN, REL_WHEEL
-        from delux_m618xsd.hardware.inphic_w1 import (
+        from omni_mouse.daemon.engine import SmartMouseDaemon
+        from omni_mouse.daemon.linux_input import BTN_EXTRA, EV_KEY, EV_REL, EV_SYN, REL_WHEEL
+        from omni_mouse.hardware.inphic_w1 import (
             InphicCpiEvent,
             InphicW1State,
             build_inphic_button_packets,
@@ -140,7 +140,7 @@ class TestM618XSDProtocol(unittest.TestCase):
             build_inphic_lighting_packet,
             decode_inphic_interrupt,
         )
-        from delux_m618xsd.ui.server import MODEL_CAPABILITIES
+        from omni_mouse.ui.server import MODEL_CAPABILITIES
 
         # 1. Verify 8-byte Feature Report 0x07 packets for Instant A704 (30fa:1701)
         led_off = build_inphic_lighting_packet(0x17)
@@ -205,7 +205,7 @@ class TestM618XSDProtocol(unittest.TestCase):
         self.assertNotIn((EV_KEY, BTN_EXTRA, 1), flat_mouse_chord)
 
     def test_live_hardware_readonly_session(self) -> None:
-        from delux_m618xsd.hardware.session import SessionError
+        from omni_mouse.hardware.session import SessionError
 
         nodes = list_m618xsd_nodes()
         if not nodes or not nodes[0].accessible:

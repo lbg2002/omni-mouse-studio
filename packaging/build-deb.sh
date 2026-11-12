@@ -2,8 +2,8 @@
 set -euo pipefail
 
 PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-VERSION="1.1.0"
-PKG_NAME="delux-m618xsd-driver"
+VERSION="1.2.0"
+PKG_NAME="omni-mouse-studio"
 ARCH="all"
 STAGE_DIR="$(mktemp -d)"
 DIST_DIR="${PROJECT_ROOT}/dist"
@@ -14,7 +14,7 @@ cleanup() {
 trap cleanup EXIT
 
 mkdir -p "${STAGE_DIR}/DEBIAN" \
-         "${STAGE_DIR}/usr/lib/delux-m618xsd" \
+         "${STAGE_DIR}/usr/lib/omni-mouse-studio" \
          "${STAGE_DIR}/usr/bin" \
          "${STAGE_DIR}/lib/udev/rules.d" \
          "${STAGE_DIR}/usr/lib/systemd/user" \
@@ -24,56 +24,56 @@ mkdir -p "${STAGE_DIR}/DEBIAN" \
          "${DIST_DIR}"
 
 # 1. Copy Python package & resources
-cp -r "${PROJECT_ROOT}/delux_m618xsd" "${STAGE_DIR}/usr/lib/delux-m618xsd/"
-find "${STAGE_DIR}/usr/lib/delux-m618xsd" -name "__pycache__" -type d -exec rm -rf {} +
-cp -f "${PROJECT_ROOT}/factory_backup.json" "${STAGE_DIR}/usr/lib/delux-m618xsd/"
-cp -f "${PROJECT_ROOT}/m618xsd-studio" \
-      "${PROJECT_ROOT}/m618xsd-daemon" \
-      "${PROJECT_ROOT}/m618xsd-tray" \
-      "${PROJECT_ROOT}/m618xsd-cli" \
-      "${STAGE_DIR}/usr/lib/delux-m618xsd/"
-chmod 0755 "${STAGE_DIR}/usr/lib/delux-m618xsd/m618xsd-"*
+cp -r "${PROJECT_ROOT}/omni_mouse" "${STAGE_DIR}/usr/lib/omni-mouse-studio/"
+find "${STAGE_DIR}/usr/lib/omni-mouse-studio" -name "__pycache__" -type d -exec rm -rf {} +
+cp -f "${PROJECT_ROOT}/factory_backup.json" "${STAGE_DIR}/usr/lib/omni-mouse-studio/"
+cp -f "${PROJECT_ROOT}/omni-mouse-studio" \
+      "${PROJECT_ROOT}/omni-mouse-daemon" \
+      "${PROJECT_ROOT}/omni-mouse-tray" \
+      "${PROJECT_ROOT}/omni-mouse-cli" \
+      "${STAGE_DIR}/usr/lib/omni-mouse-studio/"
+chmod 0755 "${STAGE_DIR}/usr/lib/omni-mouse-studio/omni-mouse-"*
 
 # 2. /usr/bin symlinks
-for cmd in m618xsd-studio m618xsd-daemon m618xsd-tray m618xsd-cli; do
-    ln -sf "/usr/lib/delux-m618xsd/${cmd}" "${STAGE_DIR}/usr/bin/${cmd}"
+for cmd in omni-mouse-studio omni-mouse-daemon omni-mouse-tray omni-mouse-cli; do
+    ln -sf "/usr/lib/omni-mouse-studio/${cmd}" "${STAGE_DIR}/usr/bin/${cmd}"
 done
 
 # 3. udev rules
-cp -f "${PROJECT_ROOT}/udev/99-delux-m618xsd.rules" "${STAGE_DIR}/lib/udev/rules.d/99-delux-m618xsd.rules"
+cp -f "${PROJECT_ROOT}/udev/99-omni-mouse-studio.rules" "${STAGE_DIR}/lib/udev/rules.d/99-omni-mouse-studio.rules"
 
 # 4. Systemd user units
-for svc in delux-m618xsd-daemon.service delux-m618xsd-tray.service; do
-    sed "s|__PROJECT_ROOT__|/usr/lib/delux-m618xsd|g" \
+for svc in omni-mouse-daemon.service omni-mouse-tray.service; do
+    sed "s|__PROJECT_ROOT__|/usr/lib/omni-mouse-studio|g" \
         "${PROJECT_ROOT}/systemd/${svc}" \
         > "${STAGE_DIR}/usr/lib/systemd/user/${svc}"
 done
 
 # 5. Desktop entry, icon & XDG autostart for tray indicator
-cp -f "${PROJECT_ROOT}/delux_m618xsd/ui/assets/delux-m618xsd.svg" \
-      "${STAGE_DIR}/usr/share/icons/hicolor/scalable/apps/delux-m618xsd.svg"
+cp -f "${PROJECT_ROOT}/omni_mouse/ui/assets/omni-mouse-studio.svg" \
+      "${STAGE_DIR}/usr/share/icons/hicolor/scalable/apps/omni-mouse-studio.svg"
 
-cat > "${STAGE_DIR}/usr/share/applications/delux-m618xsd-studio.desktop" <<'EOF'
+cat > "${STAGE_DIR}/usr/share/applications/omni-mouse-studio.desktop" <<'EOF'
 [Desktop Entry]
-Name=Multi-Mouse 3D Control Center (Delux / Inphic)
-Name[zh_CN]=多功能鼠标智控中心 (多彩 / 英菲克)
-Comment=On-Demand 3D Hardware Driver, CPI/DPI, LED & Per-App Smart Remapper for Delux M618XSD & Inphic W1
-Comment[zh_CN]=支持多彩 M618XSD 与英菲克 Inphic W1 的 3D 硬件驱动、CPI/DPI、灯效、侧键手势与按应用智能配置中心
-Exec=/usr/bin/m618xsd-studio
-Icon=delux-m618xsd
+Name=Omni Mouse Studio
+Name[zh_CN]=Omni Mouse 多功能鼠标智控中心
+Comment=On-Demand 3D Hardware Driver, CPI/DPI, LED & Per-App Smart Remapper for Multi-Brand Mice
+Comment[zh_CN]=支持英菲克 Inphic W1 与多彩 Delux M618XSD 的 3D 硬件驱动、CPI/DPI、灯效、侧键手势与按应用智控中心
+Exec=/usr/bin/omni-mouse-studio
+Icon=omni-mouse-studio
 Terminal=false
 Type=Application
 Categories=Settings;HardwareSettings;Utility;
-Keywords=mouse;delux;m618xsd;inphic;w1;dpi;cpi;rgb;remapper;鼠标;多彩;英菲克;
-StartupWMClass=delux-m618xsd-studio
+Keywords=mouse;omni;delux;m618xsd;inphic;w1;dpi;cpi;rgb;remapper;鼠标;多彩;英菲克;
+StartupWMClass=omni-mouse-studio
 EOF
 
-cat > "${STAGE_DIR}/etc/xdg/autostart/delux-m618xsd-tray.desktop" <<'EOF'
+cat > "${STAGE_DIR}/etc/xdg/autostart/omni-mouse-tray.desktop" <<'EOF'
 [Desktop Entry]
-Name=Multi-Mouse Tray Indicator (Delux / Inphic)
-Name[zh_CN]=多功能鼠标通知栏常驻托盘
-Exec=/usr/bin/m618xsd-tray
-Icon=delux-m618xsd
+Name=Omni Mouse Studio Tray Indicator
+Name[zh_CN]=Omni Mouse 通知栏常驻托盘
+Exec=/usr/bin/omni-mouse-tray
+Icon=omni-mouse-studio
 Terminal=false
 Type=Application
 X-GNOME-Autostart-enabled=true
@@ -89,12 +89,14 @@ Priority: optional
 Architecture: ${ARCH}
 Depends: python3 (>= 3.10), python3-gi, gir1.2-gtk-3.0, gir1.2-webkit2-4.1
 Recommends: gir1.2-ayatanaappindicator3-0.1
+Replaces: delux-m618xsd-driver
+Conflicts: delux-m618xsd-driver
 Maintainer: dugubaoguo <dugubaoguo@gmail.com>
-Homepage: https://github.com/lbg2002/delux-m618xsd-driver
-Description: Multi-Mouse Linux Hardware Driver & 3D Smart Control Center (Delux M618XSD & Inphic W1)
- Native Linux multi-device mouse driver supporting both the Delux M618XSD
- (Seeker) wireless/wired vertical ergonomic mouse and the Inphic W1 wired
- gaming mouse (Instant Microelectronics A704/A725). Features a zero-idle-CPU
+Homepage: https://github.com/lbg2002/omni-mouse-studio
+Description: Omni Mouse Studio - Multi-Device Linux Mouse Driver & 3D Control Center
+ Native Linux multi-device mouse driver supporting both the Inphic W1 wired
+ gaming mouse (Instant Microelectronics A704/A725) and the Delux M618XSD
+ (Seeker) wireless/wired vertical ergonomic mouse. Features a zero-idle-CPU
  background per-app/gesture/side-wheel daemon, top-bar tray indicator, and an
  on-demand WebGL 3D control studio for CPI/DPI, LED modes, and button mapping.
 EOF
@@ -111,7 +113,7 @@ fi
 if [ -e /dev/uinput ]; then
     chmod 0660 /dev/uinput || true
 fi
-systemctl --global enable delux-m618xsd-daemon.service delux-m618xsd-tray.service 2>/dev/null || true
+systemctl --global enable omni-mouse-daemon.service omni-mouse-tray.service 2>/dev/null || true
 exit 0
 EOF
 chmod 0755 "${STAGE_DIR}" "${STAGE_DIR}/DEBIAN"

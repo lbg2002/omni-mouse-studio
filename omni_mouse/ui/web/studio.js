@@ -260,10 +260,10 @@
     APP.lastRenderedModel = model;
 
     if (model === "inphic_w1") {
-      document.title = "INPHIC W1 // LINUX MULTI-DEVICE MOUSE STUDIO";
+      document.title = "OMNI MOUSE STUDIO // INPHIC W1 WIRED GAMING";
       document.getElementById("sidebar-brand-mark").textContent = "W1";
       document.getElementById("sidebar-brand-title").textContent = "INPHIC W1";
-      document.getElementById("sidebar-brand-sub").textContent = "WIRED GAMING STUDIO";
+      document.getElementById("sidebar-brand-sub").textContent = "OMNI MOUSE STUDIO";
       document.getElementById("nav-sub-overview").textContent = "3D 装甲视图 · 有线光学状态";
       document.getElementById("nav-sub-bindings").textContent = "应用切换 · 侧键+滚轮 · 手势";
       document.getElementById("nav-title-dpi").textContent = "传感器 CPI 档位";
@@ -279,10 +279,10 @@
       document.getElementById("cam-lbl-top").textContent = "正顶 V 型装甲俯视";
       document.getElementById("cam-lbl-front").textContent = "右前指托与主键视角";
     } else {
-      document.title = "DELUX M618XSD // LINUX HARDWARE CONTROL CENTER";
+      document.title = "OMNI MOUSE STUDIO // DELUX M618XSD VERTICAL";
       document.getElementById("sidebar-brand-mark").textContent = "M618";
       document.getElementById("sidebar-brand-title").textContent = "DELUX M618XSD";
-      document.getElementById("sidebar-brand-sub").textContent = "HARDWARE CONTROL CENTER";
+      document.getElementById("sidebar-brand-sub").textContent = "OMNI MOUSE STUDIO";
       document.getElementById("nav-sub-overview").textContent = "3D 硬件视图 · 实时电量遥测";
       document.getElementById("nav-sub-bindings").textContent = "应用切换 · 侧滚轮 · 四向手势";
       document.getElementById("nav-title-dpi").textContent = "传感器与回报率";

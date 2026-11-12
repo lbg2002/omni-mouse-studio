@@ -1,0 +1,7 @@
+{
+  "uuid": "omni-focus@omni-mouse",
+  "name": "Omni Mouse Studio Window Focus Helper",
+  "description": "Exposes the focused Wayland window app-id, wm-class, and title over Session D-Bus for Omni Mouse Studio per-application profiles.",
+  "shell-version": ["45", "46", "47", "48", "49", "50"],
+  "version": 1
+}

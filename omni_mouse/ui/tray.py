@@ -1,7 +1,7 @@
-"""Ultra-lightweight resident system notification bar (AppIndicator) applet for Delux M618XSD.
+"""Ultra-lightweight resident system notification bar (AppIndicator) applet for Omni Mouse Studio.
 
 Runs with minimal RAM (~18 MB) and 0.0% idle CPU (no WebKit2 / WebGL / HTTP server loaded).
-Clicking '打开控制中心 (全量 3D 模式)' spawns m618xsd-studio on demand, which exits completely on close.
+Clicking '打开控制中心 (全量 3D 模式)' spawns omni-mouse-studio on demand, which exits completely on close.
 """
 
 from __future__ import annotations
@@ -40,7 +40,7 @@ def _resolve_script(name: str) -> list[str]:
     return [name]
 
 
-class M618XSDTrayApplet:
+class OmniMouseTrayApplet:
     """Lightweight top-bar notification indicator for quick controls & launching Full Mode UI."""
 
     def __init__(self) -> None:
@@ -119,17 +119,17 @@ class M618XSDTrayApplet:
         GLib.timeout_add_seconds(60, self._periodic_refresh)
 
     def _init_indicator(self) -> None:
-        icon_file = os.path.join(ASSETS_DIR, "m618xsd-tray-active.svg")
+        icon_file = os.path.join(ASSETS_DIR, "omni-mouse-tray-active.svg")
         if INDICATOR_MOD is not None:
             ind = INDICATOR_MOD.Indicator.new(
-                "delux-m618xsd-tray",
+                "omni-mouse-tray",
                 "input-mouse",
                 INDICATOR_MOD.IndicatorCategory.HARDWARE,
             )
             if os.path.exists(icon_file):
                 ind.set_icon_theme_path(ASSETS_DIR)
-                ind.set_icon_full("m618xsd-tray-active", "Delux M618XSD")
-            ind.set_title("多彩 M618XSD 鼠标智控")
+                ind.set_icon_full("omni-mouse-tray-active", "Omni Mouse Studio")
+            ind.set_title("Omni Mouse 多功能鼠标智控")
             ind.set_status(INDICATOR_MOD.IndicatorStatus.ACTIVE)
             ind.set_menu(self.menu)
             self.indicator = ind
@@ -140,7 +140,7 @@ class M618XSDTrayApplet:
                 si.set_from_file(icon_file)
             else:
                 si.set_from_icon_name("input-mouse")
-            si.set_tooltip_text("多彩 M618XSD 鼠标智控")
+            si.set_tooltip_text("Omni Mouse 多功能鼠标智控")
             si.connect("activate", self._on_open_studio)
             si.connect(
                 "popup-menu",
@@ -191,7 +191,7 @@ class M618XSDTrayApplet:
 
     def _on_open_studio(self, *_args: Any) -> None:
         subprocess.Popen(
-            _resolve_script("m618xsd-studio"),
+            _resolve_script("omni-mouse-studio"),
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
             start_new_session=True,
@@ -224,7 +224,7 @@ class M618XSDTrayApplet:
 
     def _on_set_poll(self, _widget: Gtk.MenuItem, hz: int) -> None:
         subprocess.Popen(
-            [*_resolve_script("m618xsd-cli"), "poll", str(hz)],
+            [*_resolve_script("omni-mouse-cli"), "poll", str(hz)],
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
             start_new_session=True,
@@ -232,13 +232,13 @@ class M618XSDTrayApplet:
 
     def _on_restart_daemon(self, *_args: Any) -> None:
         res = subprocess.run(
-            ["systemctl", "--user", "restart", "delux-m618xsd-daemon.service"],
+            ["systemctl", "--user", "restart", "omni-mouse-daemon.service"],
             capture_output=True,
             check=False,
         )
         if res.returncode != 0:
             subprocess.Popen(
-                _resolve_script("m618xsd-daemon"),
+                _resolve_script("omni-mouse-daemon"),
                 stdout=subprocess.DEVNULL,
                 stderr=subprocess.DEVNULL,
                 start_new_session=True,
@@ -247,8 +247,8 @@ class M618XSDTrayApplet:
 
 
 def run_tray() -> int:
-    GLib.set_prgname("delux-m618xsd-tray")
-    _applet = M618XSDTrayApplet()
+    GLib.set_prgname("omni-mouse-tray")
+    _applet = OmniMouseTrayApplet()
     signal.signal(signal.SIGINT, lambda *_: Gtk.main_quit())
     signal.signal(signal.SIGTERM, lambda *_: Gtk.main_quit())
     Gtk.main()

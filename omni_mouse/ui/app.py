@@ -17,12 +17,12 @@ from gi.repository import Gdk, Gio, GLib, Gtk, WebKit2  # type: ignore
 from .server import StudioBackendState, start_studio_server
 
 
-class M618XSDStudioApp(Gtk.Application):
+class OmniMouseStudioApp(Gtk.Application):
     """Single-instance on-demand Full Mode UI. Exits completely on window close to free 100% WebGL/WebKit RAM."""
 
     def __init__(self) -> None:
         super().__init__(
-            application_id="com.delux.M618XSDStudio",
+            application_id="io.github.lbg2002.OmniMouseStudio",
             flags=Gio.ApplicationFlags.FLAGS_NONE,
         )
         self.backend: StudioBackendState | None = None
@@ -47,19 +47,19 @@ class M618XSDStudioApp(Gtk.Application):
         if settings is not None:
             settings.set_property("gtk-application-prefer-dark-theme", True)
 
-        GLib.set_prgname("delux-m618xsd-studio")
-        GLib.set_application_name("Linux 多功能鼠标智控中心")
+        GLib.set_prgname("omni-mouse-studio")
+        GLib.set_application_name("Omni Mouse 多功能鼠标智控中心")
 
         win = Gtk.ApplicationWindow(
             application=self,
-            title="LINUX SMART MOUSE STUDIO // DELUX M618XSD & INPHIC W1",
+            title="OMNI MOUSE STUDIO // Linux 多功能鼠标智控中心",
         )
         win.set_default_size(1300, 820)
         win.set_size_request(980, 640)
         win.set_position(Gtk.WindowPosition.CENTER)
 
         assets_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "assets")
-        for candidate in ("delux-m618xsd.svg", "m618xsd_right.png"):
+        for candidate in ("omni-mouse-studio.svg", "inphic_w1_top.png", "m618xsd_right.png"):
             icon_path = os.path.join(assets_dir, candidate)
             if os.path.exists(icon_path):
                 try:
@@ -99,7 +99,7 @@ class M618XSDStudioApp(Gtk.Application):
         webview.connect("context-menu", lambda *_args: True)
         webview.connect(
             "notify::title",
-            lambda wv, _pspec: win.set_title(wv.get_title() or "LINUX SMART MOUSE STUDIO"),
+            lambda wv, _pspec: win.set_title(wv.get_title() or "OMNI MOUSE STUDIO"),
         )
         webview.load_uri(self.url)
 
@@ -124,7 +124,7 @@ class M618XSDStudioApp(Gtk.Application):
 
 
 def run_gui() -> int:
-    app = M618XSDStudioApp()
+    app = OmniMouseStudioApp()
     signal.signal(signal.SIGINT, lambda *_: app.quit())
     return int(app.run(sys.argv))
 

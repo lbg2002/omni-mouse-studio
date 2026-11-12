@@ -1,42 +1,26 @@
-# Multi-Mouse Linux Driver & 3D Control Center (`Delux M618XSD` & `Inphic W1`)
+# Omni Mouse Studio (`omni-mouse-studio`)
 
-专为 **DELUX 多彩 M618XSD (Seeker)** 垂直人体工学鼠标（`1d57:fa60`）与 **Inphic 英菲克 W1** 有线宏定义游戏鼠标（`30fa:1701` / `Instant A704`）打造的双型号自适应 Linux 原生硬件驱动、按应用智能重映射引擎与 WebGL 实时 3D 硬件智控中心。
+**Omni Mouse Studio** 是一款面向 Linux 桌面（Wayland / X11）的全能多设备鼠标原生硬件驱动、按焦点应用智能重映射引擎与 WebGL 实时 3D 硬件智控中心。
+
+目前原生支持 **Inphic 英菲克 W1** 有线宏定义游戏鼠标（`30fa:1701` / `Instant A704`）与 **DELUX 多彩 M618XSD (Seeker)** 垂直人体工学无线/有线双模鼠标（`1d57:fa60`），后续可持续扩展更多品牌型号。
 
 支持 **「自动识别在线鼠标 + 界面/托盘一键切换型号」**，并采用 **「极简常驻后台 + 按需全量 3D 界面」** 双层低功耗架构：
-- **极简常驻层（`m618xsd-daemon` + `m618xsd-tray`）**：平时仅常驻内核事件驱动守护进程与顶部通知栏轻量图标，**空闲 0.0% CPU 占用**，不加载任何浏览器/3D 引擎。
-- **按需全量层（`m618xsd-studio`）**：仅当从**系统顶部通知栏菜单**或桌面图标点击 **「打开控制中心 (全量 3D 模式)」** 时才启动双型号专属 WebGL 实时 3D 建模与硬件调参界面；**关闭窗口即 100% 退出并彻底释放全部显存与内存**。
+- **极简常驻层（`omni-mouse-daemon` + `omni-mouse-tray`）**：平时仅常驻内核事件驱动守护进程与顶部通知栏轻量图标，**空闲 0.0% CPU 占用**，不加载任何浏览器/3D 引擎。
+- **按需全量层（`omni-mouse-studio`）**：仅当从**系统顶部通知栏菜单**或桌面图标点击 **「打开控制中心 (全量 3D 模式)」** 时才启动专属 WebGL 实时 3D 建模与硬件调参界面；**关闭窗口即 100% 退出并彻底释放全部显存与内存**。
 
 ---
 
 ## 支持设备与硬件能力对照
 
-| 模块能力 | 多彩 Delux M618XSD (`1d57:fa60`) | 英菲克 Inphic W1 有线版 (`30fa:1701`) |
+| 模块能力 | 英菲克 Inphic W1 有线版 (`30fa:1701`) | 多彩 Delux M618XSD (`1d57:fa60`) |
 | :--- | :--- | :--- |
-| **实时 3D 建模** | 垂直人体工学机身 + 蜂巢发光尾翼 + 磁吸手托 + 球形拇指轮 | V 型分割枪灰机甲盖板 + 中脊菱形 `CPI` 键 + 左侧五道斜向导流槽 + 发光 `in` 徽标 |
-| **按应用自动切换方案** | 完整支持（浏览器 / PDF图片 / WPS / IDE / 终端） | **完整支持**（浏览器 / PDF图片 / WPS / IDE / 终端） |
-| **侧键四向滑动手势 & 宏** | 前进键 / 后退键 / 中键 四向滑动 + 滚轮弦 + 宏 | **前进键 / 后退键 / 中键 四向滑动 + 滚轮弦 + 宏** |
-| **侧滚轮 / 虚拟侧滚轮** | 独立球形拇指侧滚轮一键快设 | **「按住前进侧键 + 拨动主滚轮」虚拟侧滚轮一键快设**（切标签/PDF缩放/横向滚轮/音量，单击前进键仍保持原生前进） |
-| **传感器档位硬件直写** | 5 档 DPI (`400–4000 DPI`, Report `0x04`) | **4 档硬件 CPI** (`400–4800 CPI`, 步进 400, Feature `0x07` / Cmd `0x09`) + 顶部物理 `CPI` 键切档实时同步 (`Interrupt 0x06`) |
-| **灯光系统控制** | 尾翼全彩 RGB 流光/呼吸/亮度/休眠 (`Report 0x05`) | **8 种芯片背光呼吸/律动频率、常亮与一键关灯** (`0x10..0x17`, Cmd `0x13`) |
-| **芯片按键寄存器** | Flash 永久直写 (`Report 0x08`) | **Instant A704 6 槽硬件寄存器**（含硬件三连发火力键 `0x16`、双击键 `0x17` 等，本地持久化热拔插自动重放） |
-
----
-
-## 核心特性
-
-### 1. 硬件板载直写（烧录进鼠标内置 Flash 芯片，拔下换电脑依然生效）
-- **5 档光学传感器 DPI (`Report 0x04`)**：支持 5 档独立开关、`400–4000 DPI` 步进调节、每档独立 RGB 指示灯颜色。
-- **USB 回报率 (`Report 0x06`)**：支持 `125 Hz` / `250 Hz` / `500 Hz` / `1000 Hz` 一键切换。
-- **蜂巢尾翼 RGB 灯效与省电参数 (`Report 0x05`)**：炫彩流光、霓虹渐变、单色常亮/呼吸、跟随 DPI 档位色、关闭灯光；支持亮度（1–8）、流光速度（1–5）、静止灭灯时间（0.5–30 分钟）、深度休眠时间（1–60 分钟）及微动防双击消抖延迟（4–50 ms）。
-- **板载按键直写映射 (`Report 0x08`)** 与 **出厂固件快照一键恢复 (`factory_backup.json`)**。
-- **零干扰被动电量监控 (`Interrupt 0x03`)**：只读被动监听无线唤醒与状态上报报文，实时同步电量百分比与充放电状态，绝不干扰 2.4G 无线通信。
-
-### 2. 智能应用联动与罗技级四向鼠标手势（Linux `evdev` + `uinput` 双虚拟设备引擎）
-- **按焦点应用自动切换方案 (Per-App Profiles)**：原生适配 **Ubuntu GNOME (Wayland AT-SPI2 & X11)**、Hyprland 等环境；内置 **网页浏览器 / PDF 与图片查看器 / WPS 办公套件 / 代码 IDE / 终端** 专属预设，并提供 **「一键从运行中/已安装应用列表添加」**。
-- **拇指球形侧滚轮增强**：支持按软件自动切换为标签页切换（`Ctrl+Tab` / `Ctrl+Shift+Tab`）、画面智能无级缩放（自动识别 `Loupe` / `Evince` 发送 `Ctrl+=/-` 或通用 `Ctrl+滚轮`）、横向倍速平滑滚动、系统音量调节、时间轴快进等。
-- **罗技风格四向滑动手势 + 滚轮弦联动**：
-  - 例如按住后退侧键：轻点单击保持原生「后退」；按住上滑呼出多任务概览（`Super`）；下滑最小化窗口（`Super+H`）；左/右滑切换工作区；**按住侧键 + 拨动主滚轮**直接调节音量；内置内核按键位图校验防卡死保护。
-- **按住精准微操模式 (Sniper Mode)**、**多步延迟宏序列**与**自定义 Shell 命令触发**。
+| **实时 3D 建模** | V 型分割枪灰机甲盖板 + 中脊菱形 `CPI` 键 + 左侧五道斜向导流槽 + 发光 `in` 徽标 | 垂直人体工学机身 + 蜂巢发光尾翼 + 磁吸手托 + 球形拇指轮 |
+| **按应用自动切换方案** | **完整支持**（浏览器 / PDF图片 / WPS / IDE / 终端） | **完整支持**（浏览器 / PDF图片 / WPS / IDE / 终端） |
+| **侧键四向滑动手势 & 宏** | **前进键 / 后退键 / 中键 四向滑动 + 滚轮弦 + 宏** | **前进键 / 后退键 / 中键 四向滑动 + 滚轮弦 + 宏** |
+| **侧滚轮 / 虚拟侧滚轮** | **「按住前进侧键 + 拨动主滚轮」虚拟侧滚轮一键快设**（切标签/PDF缩放/横向滚轮/音量，单击前进键仍保持原生前进） | 独立球形拇指侧滚轮一键快设 |
+| **传感器档位硬件直写** | **4 档硬件 CPI** (`400–4800 CPI`, 步进 400, Feature `0x07` / Cmd `0x09`) + 顶部物理 `CPI` 键切档实时同步 (`Interrupt 0x06`) | 5 档 DPI (`400–4000 DPI`, Report `0x04`) + 1000Hz 回报率 (`Report 0x06`) |
+| **灯光系统控制** | **8 种芯片背光呼吸/律动频率、常亮与一键关灯** (`0x10..0x17`, Cmd `0x13`) | 尾翼全彩 RGB 流光/呼吸/亮度/双级休眠 (`Report 0x05`) |
+| **芯片按键寄存器** | **Instant A704 6 槽硬件寄存器**（含硬件三连发火力键 `0x16`、双击键 `0x17` 等，本地持久化热插拔自动重放） | Flash 永久直写 (`Report 0x08`) + 零干扰被动电量监控 (`Interrupt 0x03`) |
 
 ---
 
@@ -44,15 +28,15 @@
 
 ### 方式一：源码一键安装（推荐本机日常使用与二次开发）
 ```bash
-git clone https://github.com/lbg2002/delux-m618xsd-driver.git
-cd delux-m618xsd-driver
+git clone https://github.com/lbg2002/omni-mouse-studio.git
+cd omni-mouse-studio
 ./install.sh
 ```
 安装脚本会自动配置：
-1. `udev` 非 root 设备权限规则（`/dev/hidraw*`、`/dev/input/event*`、`/dev/uinput`）
-2. `systemd --user` 开机自启极简守护服务 `delux-m618xsd-daemon.service`
-3. `systemd --user` 顶部通知栏常驻托盘服务 `delux-m618xsd-tray.service`
-4. 系统应用菜单图标 **「多彩 M618XSD 硬件控制中心」** 与命令行工具软链接
+1. `udev` 非 root 多设备权限规则（`/dev/hidraw*`、`/dev/input/event*`、`/dev/uinput`）
+2. `systemd --user` 开机自启极简守护服务 `omni-mouse-daemon.service`
+3. `systemd --user` 顶部通知栏常驻托盘服务 `omni-mouse-tray.service`
+4. 系统应用菜单图标 **「Omni Mouse 多功能鼠标智控中心」** 与命令行工具软链接
 
 如需卸载用户态服务与启动器：
 ```bash
@@ -62,35 +46,35 @@ cd delux-m618xsd-driver
 ### 方式二：构建并安装 Debian / Ubuntu `.deb` 软件包
 ```bash
 ./packaging/build-deb.sh
-sudo apt install ./dist/delux-m618xsd-driver_1.1.0_all.deb
-systemctl --user enable --now delux-m618xsd-daemon.service delux-m618xsd-tray.service
+sudo apt install ./dist/omni-mouse-studio_1.2.0_all.deb
+systemctl --user enable --now omni-mouse-daemon.service omni-mouse-tray.service
 ```
 
 ---
 
 ## 日常使用与命令行工具
 
-- **通知栏快捷控制（常驻极简模式）**：点击屏幕右上角系统通知栏的鼠标图标，可查看实时电量与当前命中方案、一键开关「按焦点应用自动切换」、切换回报率，或点击 **「打开控制中心 (全量 3D 模式)」** 调出完整界面。
+- **通知栏快捷控制（常驻极简模式）**：点击屏幕右上角系统通知栏的鼠标图标，可查看当前识别设备与生效方案、一键切换管理型号、开关「按焦点应用自动切换」，或点击 **「打开控制中心 (全量 3D 模式)」** 调出完整界面。
 - **全量 3D 控制中心（按需运行）**：
   ```bash
-  m618xsd-studio
+  omni-mouse-studio
   ```
-- **命令行工具 (`m618xsd-cli`)**：
+- **命令行工具 (`omni-mouse-cli`)**：
   ```bash
-  # 查看状态、电量、固件版本与当前生效方案
-  m618xsd-cli status
+  # 查看在线鼠标型号、CPI/DPI、灯光及守护进程状态
+  omni-mouse-cli status
 
-  # 切换板载回报率 (125 / 250 / 500 / 1000)
-  m618xsd-cli poll 500
+  # 切换识别策略 (auto / inphic_w1 / delux_m618xsd)
+  omni-mouse-cli model auto
 
-  # 设置 DPI 档位与数值
-  m618xsd-cli dpi --stage 2 --value 1600
+  # 设置当前激活鼠标的 CPI / DPI 档位与数值
+  omni-mouse-cli dpi --stage 2 --value 1200
 
-  # 设置尾翼 RGB 灯效
-  m618xsd-cli rgb --mode stream --brightness 6
+  # 设置背光 / RGB 模式
+  omni-mouse-cli rgb --mode steady
 
-  # 一键恢复出厂板载默认设置
-  m618xsd-cli restore-factory
+  # 一键恢复当前鼠标出厂硬件默认参数
+  omni-mouse-cli restore-factory
   ```
 
 ---

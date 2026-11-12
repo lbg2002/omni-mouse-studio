@@ -1,0 +1,15 @@
+[Unit]
+Description=Omni Mouse Studio System Notification Bar Indicator (Minimal Mode)
+After=graphical-session.target omni-mouse-daemon.service
+PartOf=graphical-session.target
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/python3 __PROJECT_ROOT__/omni-mouse-tray
+Restart=on-failure
+RestartSec=3
+MemoryHigh=48M
+MemoryMax=80M
+
+[Install]
+WantedBy=graphical-session.target

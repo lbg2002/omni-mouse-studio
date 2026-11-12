@@ -1,0 +1,15 @@
+#!/usr/bin/python3
+"""Run the lightweight Omni Mouse Studio Top-Bar / System Tray Indicator."""
+
+import os
+import sys
+
+for candidate in (os.path.dirname(os.path.realpath(__file__)), "/usr/lib/omni-mouse-studio"):
+    if os.path.isdir(os.path.join(candidate, "omni_mouse")) and candidate not in sys.path:
+        sys.path.insert(0, candidate)
+        break
+
+from omni_mouse.ui import run_tray
+
+if __name__ == "__main__":
+    raise SystemExit(run_tray())

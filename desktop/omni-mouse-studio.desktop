@@ -1,0 +1,12 @@
+[Desktop Entry]
+Name=Omni Mouse Studio
+Name[zh_CN]=Omni Mouse 多功能鼠标智控中心
+Comment=On-Demand 3D Hardware Driver, CPI/DPI, LED & Per-App Smart Remapper for Multi-Brand Mice
+Comment[zh_CN]=支持英菲克 Inphic W1 与多彩 Delux M618XSD 的 3D 硬件驱动、CPI/DPI、灯效、侧键手势与按应用智控中心
+Exec=/usr/bin/python3 __PROJECT_ROOT__/omni-mouse-studio
+Icon=__PROJECT_ROOT__/omni_mouse/ui/assets/omni-mouse-studio.svg
+Terminal=false
+Type=Application
+Categories=Settings;HardwareSettings;Utility;
+Keywords=mouse;omni;delux;m618xsd;inphic;w1;dpi;cpi;rgb;remapper;鼠标;多彩;英菲克;
+StartupWMClass=omni-mouse-studio

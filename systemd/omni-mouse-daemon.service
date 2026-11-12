@@ -1,11 +1,11 @@
 [Unit]
-Description=Delux M618XSD Ultra-Lightweight Smart Mouse & Gesture Daemon
+Description=Omni Mouse Studio Ultra-Lightweight Smart Mouse & Gesture Daemon
 After=graphical-session.target
 PartOf=graphical-session.target
 
 [Service]
 Type=simple
-ExecStart=/usr/bin/python3 __PROJECT_ROOT__/m618xsd-daemon
+ExecStart=/usr/bin/python3 __PROJECT_ROOT__/omni-mouse-daemon
 Restart=on-failure
 RestartSec=2
 MemoryHigh=36M

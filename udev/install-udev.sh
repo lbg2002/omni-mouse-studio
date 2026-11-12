@@ -2,9 +2,10 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-RULE_SRC="${SCRIPT_DIR}/99-delux-m618xsd.rules"
-RULE_DST="/etc/udev/rules.d/99-delux-m618xsd.rules"
+RULE_SRC="${SCRIPT_DIR}/99-omni-mouse-studio.rules"
+RULE_DST="/etc/udev/rules.d/99-omni-mouse-studio.rules"
 
+rm -f /etc/udev/rules.d/99-delux-m618xsd.rules
 install -m 0644 "${RULE_SRC}" "${RULE_DST}"
 modprobe uinput || true
 udevadm control --reload-rules
@@ -38,4 +39,4 @@ if [ -n "${TARGET_USER}" ]; then
     done
 fi
 
-echo "Multi-mouse (Delux M618XSD & Inphic W1) udev rules installed and applied successfully."
+echo "Omni Mouse Studio udev rules installed and applied successfully."
