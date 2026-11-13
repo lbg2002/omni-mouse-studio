@@ -42,7 +42,7 @@ INPHIC_LIGHT_CODE_BY_KEY = {k: code for code, (k, _) in INPHIC_LIGHT_MODES.items
 # Hardware button register codes (Command 0x10: 07 10 BT AT 00 00 00 00)
 # Verified against Instant A704 / A704F (30fa:1701) firmware specification:
 # BT: 0x01=LMB, 0x02=MMB, 0x03=RMB, 0x05=Side Forward, 0x04=Side Backward, 0x06/0x08=Top CPI
-# AT: 0x01=Left, 0x02=Middle, 0x03=Right, 0x04=Forward, 0x05=Backward, 0x06=DPI Cycle,
+# AT: 0x01=Left, 0x02=Middle, 0x03=Right, 0x04=Backward, 0x05=Forward, 0x06=DPI Cycle,
 #     0x07=Show Desktop, 0x08=Double Click, 0x09=Fire, 0x0B=DPI+, 0x0C=DPI-
 INPHIC_SLOTS: dict[int, tuple[int, str, str]] = {
     1: (0x01, "左键 (Left Click)", "left-click"),
@@ -57,8 +57,8 @@ INPHIC_FIRMWARE_ACTIONS: dict[int, tuple[str, str]] = {
     0x01: ("left-click", "左键点击 (Left Click)"),
     0x03: ("right-click", "右键菜单 (Right Click)"),
     0x02: ("middle-click", "中键点击 (Middle Click)"),
-    0x04: ("forward", "侧键 · 前进 (Forward)"),
-    0x05: ("backward", "侧键 · 后退 (Backward)"),
+    0x05: ("forward", "侧键 · 前进 (Forward)"),
+    0x04: ("backward", "侧键 · 后退 (Backward)"),
     0x08: ("double-click", "左键双击 (Double Click)"),
     0x09: ("triple-click", "连发火力键 (Rapid Fire)"),
     0x06: ("dpi-cycle", "CPI 档位循环切换"),

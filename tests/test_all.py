@@ -154,14 +154,15 @@ class TestM618XSDProtocol(unittest.TestCase):
         # 3000 CPI -> nibble=15 -> (15 << 4) | 0x0B = 0xFB
         self.assertEqual(dpi_pkts[3][3], 0xFB)
 
-        btn_pkts = build_inphic_button_packets({1: "triple-click", 2: "right-click", 4: "triple-click", 6: "dpi-cycle"})
+        btn_pkts = build_inphic_button_packets({1: "triple-click", 2: "right-click", 4: "forward", 5: "backward", 6: "dpi-cycle"})
         self.assertEqual(len(btn_pkts), 8)  # 6 slots + 0x08 CPI alt + 0x11 normal scroll wheel guard
         # Slot 1 (0x01) hard-guarded to Left Click (0x01) even if caller passes triple-click!
         self.assertEqual(btn_pkts[0][:4], bytes([0x07, 0x10, 0x01, 0x01]))
         # Slot 2 (0x03) -> Right Click (0x03)
         self.assertEqual(btn_pkts[1][:4], bytes([0x07, 0x10, 0x03, 0x03]))
-        # Slot 4 (0x05) -> Rapid Fire (0x09)
-        self.assertEqual(btn_pkts[3][:4], bytes([0x07, 0x10, 0x05, 0x09]))
+        # Slot 4 (0x05 Side Forward) -> Forward (0x05), Slot 5 (0x04 Side Backward) -> Backward (0x04)
+        self.assertEqual(btn_pkts[3][:4], bytes([0x07, 0x10, 0x05, 0x05]))
+        self.assertEqual(btn_pkts[4][:4], bytes([0x07, 0x10, 0x04, 0x04]))
 
         # 2. Verify passive CPI button interrupt 0x06 decoding (press vs 0x80 release)
         ev = decode_inphic_interrupt(bytes([0x06, 0xF6, 0x02]))
