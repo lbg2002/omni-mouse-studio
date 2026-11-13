@@ -39,33 +39,32 @@ INPHIC_LIGHT_MODES: dict[int, tuple[str, str]] = {
 
 INPHIC_LIGHT_CODE_BY_KEY = {k: code for code, (k, _) in INPHIC_LIGHT_MODES.items()}
 
-# Hardware button register codes (Command 0x10)
+# Hardware button register codes (Command 0x10: 07 10 BT AT 00 00 00 00)
+# Verified against Instant A704 / A704F (30fa:1701) firmware specification:
+# BT: 0x01=LMB, 0x02=MMB, 0x03=RMB, 0x05=Side Forward, 0x04=Side Backward, 0x06/0x08=Top CPI
+# AT: 0x01=Left, 0x02=Middle, 0x03=Right, 0x04=Forward, 0x05=Backward, 0x06=DPI Cycle,
+#     0x07=Show Desktop, 0x08=Double Click, 0x09=Fire, 0x0B=DPI+, 0x0C=DPI-
 INPHIC_SLOTS: dict[int, tuple[int, str, str]] = {
     1: (0x01, "左键 (Left Click)", "left-click"),
     2: (0x03, "右键 (Right Click)", "right-click"),
     3: (0x02, "滚轮中键 (Middle Click)", "middle-click"),
-    4: (0x04, "前进侧键 (Forward)", "forward"),
-    5: (0x05, "后退侧键 (Backward)", "backward"),
+    4: (0x05, "前进侧键 (Forward)", "forward"),
+    5: (0x04, "后退侧键 (Backward)", "backward"),
     6: (0x06, "顶部 CPI 键 (CPI Cycle)", "dpi-cycle"),
 }
 
 INPHIC_FIRMWARE_ACTIONS: dict[int, tuple[str, str]] = {
-    0x10: ("left-click", "左键点击 (Left Click)"),
-    0x11: ("right-click", "右键菜单 (Right Click)"),
-    0x12: ("middle-click", "中键点击 (Middle Click)"),
-    0x14: ("forward", "侧键 · 前进 (Forward)"),
-    0x13: ("backward", "侧键 · 后退 (Backward)"),
-    0x17: ("double-click", "左键双击 (Double Click)"),
-    0x16: ("triple-click", "三连发火力键 (Triple Fire)"),
-    0x20: ("dpi-cycle", "CPI 档位循环切换"),
-    0x21: ("dpi-up", "CPI 加档 (CPI +)"),
-    0x22: ("dpi-down", "CPI 减档 (CPI -)"),
-    0x37: ("led-toggle", "背光灯效切换"),
-    0x32: ("play-pause", "媒体播放 / 暂停"),
-    0x35: ("volume-up", "系统音量 +"),
-    0x36: ("volume-down", "系统音量 -"),
-    0x34: ("mute", "系统静音切换"),
-    0x00: ("disabled", "禁用此按键"),
+    0x01: ("left-click", "左键点击 (Left Click)"),
+    0x03: ("right-click", "右键菜单 (Right Click)"),
+    0x02: ("middle-click", "中键点击 (Middle Click)"),
+    0x04: ("forward", "侧键 · 前进 (Forward)"),
+    0x05: ("backward", "侧键 · 后退 (Backward)"),
+    0x08: ("double-click", "左键双击 (Double Click)"),
+    0x09: ("triple-click", "连发火力键 (Rapid Fire)"),
+    0x06: ("dpi-cycle", "CPI 档位循环切换"),
+    0x0B: ("dpi-up", "CPI 加档 (CPI +)"),
+    0x0C: ("dpi-down", "CPI 减档 (CPI -)"),
+    0x07: ("show-desktop", "显示桌面 (Show Desktop)"),
 }
 
 INPHIC_ACTION_CODE_BY_KEY = {k: code for code, (k, _) in INPHIC_FIRMWARE_ACTIONS.items()}
@@ -111,9 +110,9 @@ def find_inphic_w1_node(node_path: str | None = None) -> HidrawNode:
 
 
 def snap_inphic_cpi(val: int) -> int:
-    """Snap CPI to Instant A704 hardware step (400..4800 CPI in 400-CPI increments)."""
-    nibble = max(1, min(12, int(round(int(val) / 400.0))))
-    return nibble * 400
+    """Snap CPI to Instant A704 hardware step (200..3000 CPI in 200-CPI increments, nibble 1..15)."""
+    nibble = max(1, min(15, int(round(int(val) / 200.0))))
+    return nibble * 200
 
 
 def build_inphic_lighting_packet(mode_code: int) -> bytes:
@@ -144,7 +143,7 @@ def build_inphic_dpi_packets(
     packets: list[bytes] = []
     for idx in range(4):
         cpi = snap_inphic_cpi(stages_cpi[idx] if idx < len(stages_cpi) else (idx + 2) * 400)
-        nibble = max(1, min(15, cpi // 400))
+        nibble = max(1, min(15, cpi // 200))
         b0 = active_idx & 0x03
         b1 = ((nibble & 0x0F) << 4) | (0x08 + idx)
         b2 = mask & 0x0F
@@ -153,20 +152,26 @@ def build_inphic_dpi_packets(
 
 
 def build_inphic_button_packets(slot_actions: dict[int, str]) -> list[bytes]:
-    """Build 8-byte Report 0x07 hardware button assignment packets."""
+    """Build 8-byte Report 0x07 hardware button assignment packets for Instant A704."""
     packets: list[bytes] = []
     for slot_num, (btn_hex, _lbl, default_key) in INPHIC_SLOTS.items():
-        act_key = slot_actions.get(slot_num, default_key)
+        # Hard guard: Slot 1 (LMB) always stays left-click so primary clicking can never be locked out
+        act_key = "left-click" if slot_num == 1 else slot_actions.get(slot_num, default_key)
         act_code = INPHIC_ACTION_CODE_BY_KEY.get(act_key, INPHIC_ACTION_CODE_BY_KEY[default_key])
         packets.append(bytes([RID_INPHIC_CFG, 0x10, btn_hex, act_code, 0x00, 0x00, 0x00, 0x00]))
         if slot_num == 6:
             # Instant A704/A704F variants wire top CPI button to 0x06 or 0x08
             packets.append(bytes([RID_INPHIC_CFG, 0x10, 0x08, act_code, 0x00, 0x00, 0x00, 0x00]))
+    # Ensure wheel stays in normal scroll mode (0x00)
+    packets.append(bytes([RID_INPHIC_CFG, 0x11, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00]))
     return packets
 
 
 def decode_inphic_interrupt(pkt: bytes | bytearray) -> InphicCpiEvent | None:
     if len(pkt) >= 3 and pkt[0] == RID_INPHIC_EVT:
+        # pkt[2] == 0x80 indicates button release on Instant A704; only decode press (0x00..0x03)
+        if int(pkt[2]) & 0x80:
+            return None
         stage = (int(pkt[2]) & 0x03) + 1
         return InphicCpiEvent(stage=stage, button_mask=int(pkt[1]))
     return None
@@ -175,6 +180,7 @@ def decode_inphic_interrupt(pkt: bytes | bytearray) -> InphicCpiEvent | None:
 @dataclass
 class InphicW1State:
     user_configured: bool = False
+    buttons_configured: bool = False
     current_stage: int = 2
     stages_cpi: list[int] = field(default_factory=lambda: [800, 1200, 1600, 2400])
     stages_enabled: list[bool] = field(default_factory=lambda: [True, True, True, True])
@@ -220,7 +226,7 @@ class InphicW1State:
         slots_out = []
         for slot_num, (_btn_hex, label, default_key) in INPHIC_SLOTS.items():
             act_key = self.button_actions.get(slot_num, default_key)
-            act_code = INPHIC_ACTION_CODE_BY_KEY.get(act_key, 0x10)
+            act_code = INPHIC_ACTION_CODE_BY_KEY.get(act_key, INPHIC_ACTION_CODE_BY_KEY[default_key])
             _, desc = INPHIC_FIRMWARE_ACTIONS.get(act_code, (act_key, act_key))
             slots_out.append(
                 {
@@ -237,6 +243,7 @@ class InphicW1State:
     def to_json_dict(self) -> dict[str, Any]:
         return {
             "user_configured": self.user_configured,
+            "buttons_configured": self.buttons_configured,
             "current_stage": self.current_stage,
             "stages_cpi": [snap_inphic_cpi(x) for x in self.stages_cpi[:4]],
             "stages_enabled": [bool(x) for x in self.stages_enabled[:4]],
@@ -250,6 +257,7 @@ class InphicW1State:
     def from_json_dict(cls, data: dict[str, Any]) -> "InphicW1State":
         st = cls()
         st.user_configured = bool(data.get("user_configured", False))
+        st.buttons_configured = bool(data.get("buttons_configured", False))
         st.current_stage = max(1, min(4, int(data.get("current_stage", 2))))
         raw_cpi = data.get("stages_cpi")
         if isinstance(raw_cpi, list) and len(raw_cpi) == 4:

@@ -267,7 +267,7 @@
       document.getElementById("nav-sub-overview").textContent = "3D 装甲视图 · 有线光学状态";
       document.getElementById("nav-sub-bindings").textContent = "应用切换 · 侧键+滚轮 · 手势";
       document.getElementById("nav-title-dpi").textContent = "传感器 CPI 档位";
-      document.getElementById("nav-sub-dpi").textContent = "4 档 CPI · 400–4800 调节";
+      document.getElementById("nav-sub-dpi").textContent = "4 档 CPI · 200–3000 调节";
       document.getElementById("nav-title-rgb").textContent = "呼吸背光控制";
       document.getElementById("nav-sub-rgb").textContent = "滚轮与 IN 标志 8 模灯效";
       document.getElementById("nav-sub-onboard").textContent = "A704 芯片按键 · 断电记忆";

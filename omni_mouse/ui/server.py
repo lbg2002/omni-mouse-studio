@@ -81,9 +81,9 @@ MODEL_CAPABILITIES: dict[str, dict[str, Any]] = {
         "has_rgb_color": False,
         "has_hw_combos": False,
         "dpi_stages": 4,
-        "dpi_min": 400,
-        "dpi_max": 4800,
-        "dpi_step": 400,
+        "dpi_min": 200,
+        "dpi_max": 3000,
+        "dpi_step": 200,
     },
 }
 
@@ -468,6 +468,7 @@ class StudioBackendState:
             with self.lock:
                 st = load_inphic_state()
                 st.user_configured = True
+                st.buttons_configured = True
                 for item in payload.get("slots", []):
                     slot_num = int(item.get("slot", 0))
                     act_key = str(item.get("action_key", ""))

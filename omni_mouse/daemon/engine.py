@@ -637,7 +637,10 @@ class SmartMouseDaemon:
             return
         try:
             with InphicW1Session() as sess:
-                sess.write_all(st)
+                sess.write_dpi(st)
+                sess.write_lighting(st)
+                if st.buttons_configured:
+                    sess.write_buttons(st)
             self._log("已向 Inphic W1 自动恢复保存的 CPI 与灯光参数")
         except Exception as exc:
             self._log(f"恢复 Inphic W1 参数提示: {exc}")

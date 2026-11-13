@@ -147,25 +147,31 @@ class TestM618XSDProtocol(unittest.TestCase):
         self.assertEqual(len(led_off), 8)
         self.assertEqual(led_off[:4], bytes([0x07, 0x13, 0x7F, 0x17]))
 
-        dpi_pkts = build_inphic_dpi_packets([800, 1200, 2400, 4800], [True, True, True, True], current_stage=2)
+        dpi_pkts = build_inphic_dpi_packets([800, 1200, 2400, 3000], [True, True, True, True], current_stage=2)
         self.assertEqual(len(dpi_pkts), 4)
-        # Stage 2 selected -> active_idx=1, 1200 CPI -> nibble=3 -> (3 << 4) | 0x09 = 0x39, mask=0x0F
-        self.assertEqual(dpi_pkts[1][:5], bytes([0x07, 0x09, 0x01, 0x39, 0x0F]))
-        # 4800 CPI -> nibble=12 -> (12 << 4) | 0x0B = 0xCB
-        self.assertEqual(dpi_pkts[3][3], 0xCB)
+        # Stage 2 selected -> active_idx=1, 1200 CPI -> nibble=6 -> (6 << 4) | 0x09 = 0x69, mask=0x0F
+        self.assertEqual(dpi_pkts[1][:5], bytes([0x07, 0x09, 0x01, 0x69, 0x0F]))
+        # 3000 CPI -> nibble=15 -> (15 << 4) | 0x0B = 0xFB
+        self.assertEqual(dpi_pkts[3][3], 0xFB)
 
-        btn_pkts = build_inphic_button_packets({1: "left-click", 4: "triple-click", 6: "dpi-cycle"})
-        self.assertEqual(len(btn_pkts), 7)  # 6 slots + 0x08 variant for top CPI button
-        self.assertEqual(btn_pkts[3][:4], bytes([0x07, 0x10, 0x04, 0x16]))  # Slot 4 (0x04) -> Triple Fire 0x16
+        btn_pkts = build_inphic_button_packets({1: "triple-click", 2: "right-click", 4: "triple-click", 6: "dpi-cycle"})
+        self.assertEqual(len(btn_pkts), 8)  # 6 slots + 0x08 CPI alt + 0x11 normal scroll wheel guard
+        # Slot 1 (0x01) hard-guarded to Left Click (0x01) even if caller passes triple-click!
+        self.assertEqual(btn_pkts[0][:4], bytes([0x07, 0x10, 0x01, 0x01]))
+        # Slot 2 (0x03) -> Right Click (0x03)
+        self.assertEqual(btn_pkts[1][:4], bytes([0x07, 0x10, 0x03, 0x03]))
+        # Slot 4 (0x05) -> Rapid Fire (0x09)
+        self.assertEqual(btn_pkts[3][:4], bytes([0x07, 0x10, 0x05, 0x09]))
 
-        # 2. Verify passive CPI button interrupt 0x06 decoding
-        ev = decode_inphic_interrupt(bytes([0x06, 0x00, 0x02]))
-        self.assertEqual(ev, InphicCpiEvent(stage=3, button_mask=0))
+        # 2. Verify passive CPI button interrupt 0x06 decoding (press vs 0x80 release)
+        ev = decode_inphic_interrupt(bytes([0x06, 0xF6, 0x02]))
+        self.assertEqual(ev, InphicCpiEvent(stage=3, button_mask=0xF6))
+        self.assertIsNone(decode_inphic_interrupt(bytes([0x06, 0xF6, 0x80])))
 
         # 3. Verify InphicW1State round-trip
-        st = InphicW1State(stages_cpi=[800, 1600, 2400, 3600], current_stage=3, light_mode=0x16)
+        st = InphicW1State(stages_cpi=[800, 1200, 1800, 2400], current_stage=3, light_mode=0x16)
         st2 = InphicW1State.from_json_dict(st.to_json_dict())
-        self.assertEqual(st2.stages_cpi, [800, 1600, 2400, 3600])
+        self.assertEqual(st2.stages_cpi, [800, 1200, 1800, 2400])
         self.assertEqual(st2.current_stage, 3)
         self.assertEqual(st2.light_mode, 0x16)
         self.assertIn("inphic_w1", MODEL_CAPABILITIES)
