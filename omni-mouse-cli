@@ -23,8 +23,8 @@ from omni_mouse.hardware import (
     InphicW1Session,
     M618XSDSession,
     PollingRate,
-    find_m618xsd_node,
     list_inphic_w1_nodes,
+    list_m618xsd_nodes,
 )
 from omni_mouse.hardware.inphic_w1 import is_inphic_config_node, load_inphic_state, save_inphic_state, snap_inphic_cpi
 
@@ -49,7 +49,7 @@ def _resolve_active_model() -> str:
     dm = query_daemon("status")
     if dm and dm.get("ok") and dm.get("grabbed") and dm.get("device_model") in ("inphic_w1", "delux_m618xsd"):
         return dm["device_model"]
-    if find_m618xsd_node() is not None:
+    if list_m618xsd_nodes():
         return "delux_m618xsd"
     if any(is_inphic_config_node(n) for n in list_inphic_w1_nodes()):
         return "inphic_w1"

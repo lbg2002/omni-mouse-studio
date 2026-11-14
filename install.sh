@@ -12,12 +12,12 @@ chmod +x "${PROJECT_ROOT}/omni-mouse-studio" \
 
 # 1. Install udev permissions unless --user-only
 if [ "${USER_ONLY}" != "--user-only" ]; then
-    UDEV_FILES=(/etc/udev/rules.d/99-omni-mouse-studio.rules /lib/udev/rules.d/99-omni-mouse-studio.rules /etc/udev/rules.d/99-delux-m618xsd.rules /lib/udev/rules.d/99-delux-m618xsd.rules)
-    if ! grep -q "30fa" "${UDEV_FILES[@]}" 2>/dev/null; then
-        echo ">>> 安装/升级 Omni Mouse Studio udev 多设备访问权限规则..."
+    UDEV_FILES=(/etc/udev/rules.d/70-omni-mouse-studio.rules /lib/udev/rules.d/70-omni-mouse-studio.rules)
+    if ! grep -q 'GROUP="plugdev"' "${UDEV_FILES[@]}" 2>/dev/null; then
+        echo ">>> 安装/升级 Omni Mouse Studio 70-udev 持久设备权限规则..."
         pkexec "${PROJECT_ROOT}/udev/install-udev.sh"
     else
-        echo ">>> 已检测到最新多设备 udev 权限规则，跳过提权安装。"
+        echo ">>> 已检测到最新 70-udev 权限规则，跳过提权安装。"
     fi
 fi
 

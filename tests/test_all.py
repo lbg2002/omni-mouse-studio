@@ -87,6 +87,12 @@ class TestM618XSDProtocol(unittest.TestCase):
         p_wps_doc = cfg.resolve_profile("wps", "WPS Office", "报告.docx - WPS文字")
         self.assertEqual(p_wps_doc.id, "wps_office")
 
+        # Short WPS pattern "et" must NEVER hijack IDE/terminal windows whose title contains "et" (e.g. "Greeting", "WeTab")
+        p_ide_greeting = cfg.resolve_profile("antigravity-app.desktop", "antigravity", "Friendly Greeting - Outside")
+        self.assertEqual(p_ide_greeting.id, "code_ide")
+        p_term_target = cfg.resolve_profile("org.gnome.Ptyxis", "org.gnome.Ptyxis", "dugubaoguo@host: ~/target")
+        self.assertEqual(p_term_target.id, "global")
+
         macro_spec = ActionSpec(
             kind="macro",
             macro_steps=[{"combo": "Ctrl+C", "delay_ms": 40}, {"combo": "Ctrl+V", "delay_ms": 40}],

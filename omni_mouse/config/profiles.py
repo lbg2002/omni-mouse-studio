@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import shutil
 from dataclasses import asdict, dataclass, field
 from typing import Any
@@ -236,11 +237,25 @@ class AppProfile:
     def matches(self, app_id: str, wm_class: str, title: str) -> bool:
         if not self.enabled or self.is_global:
             return False
-        haystack = f"{app_id} {wm_class} {title}".lower()
+        app_haystack = f"{app_id} {wm_class}".lower().strip()
+        full_haystack = f"{app_id} {wm_class} {title}".lower()
+        app_tokens = set(re.findall(r"[a-z0-9\u4e00-\u9fff]+", app_haystack))
         for pat in self.match_patterns:
             p = pat.strip().lower()
-            if p and p in haystack:
-                return True
+            if not p:
+                continue
+            if p.startswith("."):
+                # File extension pattern (e.g. ".pdf") checks window title too
+                if p in full_haystack:
+                    return True
+            elif len(p) <= 3 and p.isascii():
+                # Short ASCII binary names (e.g. "et", "wps", "kgx") require exact token match on app_id/wm_class
+                if p in app_tokens:
+                    return True
+            else:
+                target = app_haystack if app_haystack else full_haystack
+                if p in target:
+                    return True
         return False
 
     def to_dict(self) -> dict[str, Any]:

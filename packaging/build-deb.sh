@@ -2,7 +2,7 @@
 set -euo pipefail
 
 PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-VERSION="1.2.2"
+VERSION="1.2.3"
 PKG_NAME="omni-mouse-studio"
 ARCH="all"
 STAGE_DIR="$(mktemp -d)"
@@ -39,8 +39,8 @@ for cmd in omni-mouse-studio omni-mouse-daemon omni-mouse-tray omni-mouse-cli; d
     ln -sf "/usr/lib/omni-mouse-studio/${cmd}" "${STAGE_DIR}/usr/bin/${cmd}"
 done
 
-# 3. udev rules
-cp -f "${PROJECT_ROOT}/udev/99-omni-mouse-studio.rules" "${STAGE_DIR}/lib/udev/rules.d/99-omni-mouse-studio.rules"
+# 3. udev rules (priority 70 < 73-seat-late.rules)
+cp -f "${PROJECT_ROOT}/udev/70-omni-mouse-studio.rules" "${STAGE_DIR}/lib/udev/rules.d/70-omni-mouse-studio.rules"
 
 # 4. Systemd user units
 for svc in omni-mouse-daemon.service omni-mouse-tray.service; do
@@ -104,13 +104,16 @@ EOF
 cat > "${STAGE_DIR}/DEBIAN/postinst" <<'EOF'
 #!/bin/sh
 set -e
+rm -f /etc/udev/rules.d/99-delux-m618xsd.rules /etc/udev/rules.d/99-omni-mouse-studio.rules
 if command -v udevadm >/dev/null 2>&1; then
     udevadm control --reload-rules || true
-    udevadm trigger --subsystem-match=hidraw || true
-    udevadm trigger --subsystem-match=input || true
-    udevadm trigger --name-match=uinput || true
+    udevadm trigger --action=add --subsystem-match=usb || true
+    udevadm trigger --action=add --subsystem-match=hidraw || true
+    udevadm trigger --action=add --subsystem-match=input || true
+    udevadm trigger --action=add --name-match=uinput || true
 fi
 if [ -e /dev/uinput ]; then
+    chgrp plugdev /dev/uinput 2>/dev/null || true
     chmod 0660 /dev/uinput || true
 fi
 systemctl --global enable omni-mouse-daemon.service omni-mouse-tray.service 2>/dev/null || true

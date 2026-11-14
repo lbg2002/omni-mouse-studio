@@ -1,0 +1,21 @@
+# Omni Mouse Studio udev rules (Delux M618XSD & Inphic W1)
+# IMPORTANT: File prefix MUST be 70 (< 73-seat-late.rules) so systemd's uaccess builtin
+# actually processes TAG+="uaccess" on USB hotplug, overnight suspend/resume, and port resets.
+# GROUP="plugdev" + MODE="0660" also guarantees uninterrupted daemon access even while the
+# desktop screen is locked or transitioning power states.
+
+# 1. Prevent Linux USB autosuspend from randomly resetting supported mice while idle overnight
+ACTION=="add|bind", SUBSYSTEM=="usb", ATTR{idVendor}=="1d57", TEST=="power/control", ATTR{power/control}="on"
+ACTION=="add|bind", SUBSYSTEM=="usb", ATTR{idVendor}=="30fa", TEST=="power/control", ATTR{power/control}="on"
+ACTION=="add|bind", SUBSYSTEM=="usb", ATTR{idVendor}=="18f8", TEST=="power/control", ATTR{power/control}="on"
+
+# 2. HID raw configuration nodes & evdev input event nodes
+SUBSYSTEM=="hidraw", ATTRS{idVendor}=="1d57", GROUP="plugdev", MODE="0660", TAG+="uaccess"
+SUBSYSTEM=="input", ATTRS{idVendor}=="1d57", GROUP="plugdev", MODE="0660", TAG+="uaccess"
+SUBSYSTEM=="hidraw", ATTRS{idVendor}=="30fa", GROUP="plugdev", MODE="0660", TAG+="uaccess"
+SUBSYSTEM=="input", ATTRS{idVendor}=="30fa", GROUP="plugdev", MODE="0660", TAG+="uaccess"
+SUBSYSTEM=="hidraw", ATTRS{idVendor}=="18f8", GROUP="plugdev", MODE="0660", TAG+="uaccess"
+SUBSYSTEM=="input", ATTRS{idVendor}=="18f8", GROUP="plugdev", MODE="0660", TAG+="uaccess"
+
+# 3. /dev/uinput for virtual keyboard/mouse/scroll injection under Wayland & X11
+KERNEL=="uinput", SUBSYSTEM=="misc", GROUP="plugdev", MODE="0660", TAG+="uaccess", OPTIONS+="static_node=uinput"

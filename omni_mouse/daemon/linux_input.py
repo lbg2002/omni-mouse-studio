@@ -145,6 +145,28 @@ def list_supported_mouse_evdev() -> list[EvdevMouseNode]:
     return found
 
 
+def find_inaccessible_mouse_evdev() -> list[str]:
+    """Detect supported mouse /dev/input/eventN nodes that exist in sysfs but lack read access."""
+    blocked: list[str] = []
+    for sys_ev in sorted(glob.glob("/sys/class/input/event*")):
+        uevent = os.path.join(sys_ev, "device", "uevent")
+        if not os.path.exists(uevent):
+            continue
+        try:
+            with open(uevent, encoding="utf-8", errors="ignore") as fh:
+                txt = fh.read().upper()
+        except OSError:
+            continue
+        if not any(tag in txt for tag in ("/1D57/", "/30FA/", "/18F8/")):
+            continue
+        if "EV=17" not in txt and "EV=1F" not in txt:
+            continue
+        devnode = f"/dev/input/{os.path.basename(sys_ev)}"
+        if os.path.exists(devnode) and not os.access(devnode, os.R_OK):
+            blocked.append(devnode)
+    return blocked
+
+
 def find_supported_mouse_evdev(preferred_model: str | None = None) -> EvdevMouseNode | None:
     """Return the preferred or first available supported physical mouse node."""
     nodes = list_supported_mouse_evdev()

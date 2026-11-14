@@ -51,6 +51,7 @@ from .linux_input import (
     REL_Y,
     PhysicalMouseReader,
     VirtualInputPair,
+    find_inaccessible_mouse_evdev,
     find_supported_mouse_evdev,
 )
 from .window_tracker import ActiveWindowTracker, WindowInfo
@@ -676,6 +677,8 @@ class SmartMouseDaemon:
         if self.reader is None:
             node = find_supported_mouse_evdev(preferred_model=pref)
             if node is not None:
+                self._perm_warned_nodes: set[str] = getattr(self, "_perm_warned_nodes", set())
+                self._perm_warned_nodes.clear()
                 reader = PhysicalMouseReader(node.path)
                 try:
                     reader.open_and_grab()
@@ -691,6 +694,14 @@ class SmartMouseDaemon:
                 except OSError as exc:
                     reader.close()
                     self._log(f"接管鼠标失败: {exc}")
+            else:
+                blocked = find_inaccessible_mouse_evdev()
+                warned = getattr(self, "_perm_warned_nodes", set())
+                for bpath in blocked:
+                    if bpath not in warned:
+                        warned.add(bpath)
+                        self._perm_warned_nodes = warned
+                        self._log(f"检测到鼠标节点 {bpath} 无读取权限，请执行 udev/install-udev.sh 更新 70-udev 规则")
 
     def run(self) -> int:
         self.running = True
