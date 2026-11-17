@@ -24,6 +24,7 @@ from ..config.profiles import (
     DriverConfig,
     load_config,
     save_config,
+    update_config,
 )
 from ..daemon.engine import query_daemon
 from ..daemon.linux_input import list_supported_mouse_evdev
@@ -227,9 +228,7 @@ class StudioBackendState:
             raise ValueError(f"不支持的设备选择: {model_sel}")
         with self.lock:
             self.selected_model = model_sel
-            cfg = load_config(CONFIG_PATH)
-            cfg.preferred_model = model_sel
-            save_config(cfg, CONFIG_PATH)
+            update_config(lambda cfg: setattr(cfg, "preferred_model", model_sel), CONFIG_PATH)
         query_daemon("reload")
         self.refresh_hardware(fast=True)
         return self.full_state_payload()
