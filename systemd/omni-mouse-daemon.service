@@ -1,15 +1,12 @@
 [Unit]
 Description=Omni Mouse Studio Ultra-Lightweight Smart Mouse & Gesture Daemon
-After=graphical-session.target
-PartOf=graphical-session.target
+After=basic.target
 
 [Service]
 Type=simple
 ExecStart=/usr/bin/python3 __PROJECT_ROOT__/omni-mouse-daemon
-Restart=on-failure
+Restart=always
 RestartSec=2
-MemoryHigh=36M
-MemoryMax=64M
 
 [Install]
-WantedBy=graphical-session.target
+WantedBy=default.target
