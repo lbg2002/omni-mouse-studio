@@ -15,7 +15,7 @@ for _candidate in (ROOT, "/usr/lib/omni-mouse-studio"):
         ROOT = _candidate
         break
 
-from omni_mouse.config import CONFIG_PATH, load_config, save_config
+from omni_mouse.config import CONFIG_PATH, load_config, update_config
 from omni_mouse.daemon import query_daemon
 from omni_mouse.hardware import (
     INPHIC_LIGHT_MODES,
@@ -139,9 +139,7 @@ def cmd_status(args: argparse.Namespace) -> int:
 
 
 def cmd_set_model(args: argparse.Namespace) -> int:
-    cfg = load_config(CONFIG_PATH)
-    cfg.preferred_model = args.model
-    save_config(cfg, CONFIG_PATH)
+    update_config(lambda cfg: setattr(cfg, "preferred_model", args.model), CONFIG_PATH)
     query_daemon("reload")
     print(f"已将型号管理策略切换为: {args.model}")
     return 0
