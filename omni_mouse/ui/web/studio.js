@@ -229,6 +229,86 @@
     return base;
   }
 
+  let UPDATE_CHECK_RESULT = null;
+
+  async function initializeAboutPane() {
+    try {
+      const info = await apiGet("/api/update/info");
+      document.getElementById("about-current-version").textContent = "v" + info.current_version;
+      document.getElementById("about-install-type").textContent =
+        info.install_type === "deb" ? "Debian 软件包" : "源码安装";
+    } catch (err) {
+      document.getElementById("about-current-version").textContent = "读取失败";
+      document.getElementById("about-update-status").textContent = "无法读取版本信息：" + String(err);
+    }
+  }
+
+  async function checkForUpdates() {
+    const btn = document.getElementById("btn-check-updates");
+    const download = document.getElementById("btn-download-update");
+    const status = document.getElementById("about-update-status");
+    btn.disabled = true;
+    btn.textContent = "检查中...";
+    download.disabled = true;
+    UPDATE_CHECK_RESULT = null;
+    status.textContent = "正在连接 GitHub Releases...";
+    document.getElementById("about-release-notes").hidden = true;
+
+    try {
+      const result = await apiGet("/api/update/check");
+      if (!result.ok) {
+        status.textContent = "检查失败：" + (result.error || "网络不可用");
+        return;
+      }
+      UPDATE_CHECK_RESULT = result;
+      document.getElementById("about-current-version").textContent = "v" + result.current_version;
+      document.getElementById("about-latest-version").textContent = "v" + result.latest_version;
+      if (result.update_available) {
+        status.textContent = result.has_deb
+          ? "发现新版本 v" + result.latest_version + "，可以下载 Debian 安装包。"
+          : "发现新版本 v" + result.latest_version + "，但尚未发布 .deb 安装包。";
+        download.disabled = !result.has_deb;
+      } else {
+        status.textContent = "已是最新稳定版本，无需升级。";
+      }
+      if (result.release_notes) {
+        document.getElementById("about-release-notes-text").textContent = result.release_notes;
+        document.getElementById("about-release-notes").hidden = false;
+      }
+      document.getElementById("about-install-command").textContent =
+        "sudo apt install ./omni-mouse-studio_" + result.latest_version + "_all.deb";
+    } catch (err) {
+      status.textContent = "检查失败：" + String(err);
+    } finally {
+      btn.disabled = false;
+      btn.textContent = "检查更新";
+    }
+  }
+
+  async function openUpdateDestination(target) {
+    const status = document.getElementById("about-update-status");
+    const button = document.getElementById(
+      target === "deb" ? "btn-download-update" : "btn-open-releases"
+    );
+    if (target === "deb" && !(UPDATE_CHECK_RESULT && UPDATE_CHECK_RESULT.has_deb &&
+        UPDATE_CHECK_RESULT.update_available)) return;
+    button.disabled = true;
+    try {
+      const result = await apiPost("/api/update/open", { target });
+      if (!result.ok) {
+        status.textContent = "无法打开下载页面：" + (result.error || "未知错误");
+      } else {
+        showToast("已在系统浏览器打开 GitHub 下载页面");
+      }
+    } catch (err) {
+      status.textContent = "打开页面失败：" + String(err);
+    } finally {
+      button.disabled = target === "deb"
+        ? !(UPDATE_CHECK_RESULT && UPDATE_CHECK_RESULT.update_available && UPDATE_CHECK_RESULT.has_deb)
+        : false;
+    }
+  }
+
   function switchPane(paneId) {
     document.querySelectorAll("#left-nav .nav-item").forEach((btn) => {
       btn.classList.toggle("active", btn.dataset.pane === paneId);
@@ -1354,6 +1434,9 @@
   // GLOBAL EVENT WIRING
   // =========================================================================
   function bindGlobalUI() {
+    document.getElementById("btn-check-updates").addEventListener("click", checkForUpdates);
+    document.getElementById("btn-download-update").addEventListener("click", () => openUpdateDestination("deb"));
+    document.getElementById("btn-open-releases").addEventListener("click", () => openUpdateDestination("release"));
     document.querySelectorAll("#left-nav .nav-item").forEach((btn) => {
       btn.addEventListener("click", () => switchPane(btn.dataset.pane));
     });
@@ -1861,6 +1944,8 @@
     });
 
     bindGlobalUI();
+    // Local metadata only. GitHub is contacted on manual "检查更新".
+    initializeAboutPane();
 
     const state = await apiGet("/api/state");
     APP.hardware = state.hardware;
