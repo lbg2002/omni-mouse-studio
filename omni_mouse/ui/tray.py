@@ -166,6 +166,12 @@ class OmniMouseTrayApplet:
             self._updating_checks = False
 
         if st and st.get("ok"):
+            if not st.get("virtual_ready"):
+                err = st.get("virtual_error") or "初始化中"
+                self.item_hw_status.set_label(f"输入增强未就绪: {err[:65]}")
+                self.item_profile_status.set_label("守护在线 · 当前使用硬件原生功能")
+                self.poll_item.set_sensitive(False)
+                return
             dev_model = st.get("device_model") or ""
             grab_txt = "已接管" if st.get("grabbed") else "硬件直通"
             if dev_model == "inphic_w1":
