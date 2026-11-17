@@ -174,9 +174,8 @@ def find_supported_mouse_evdev(preferred_model: str | None = None) -> EvdevMouse
     if not nodes:
         return None
     if preferred_model:
-        for n in nodes:
-            if n.model_key == preferred_model:
-                return n
+        # Explicit model selection must never silently hijack another mouse.
+        return next((n for n in nodes if n.model_key == preferred_model), None)
     return nodes[0]
 
 
