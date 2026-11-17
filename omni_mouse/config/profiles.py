@@ -490,7 +490,7 @@ def load_config(path: str = CONFIG_PATH) -> DriverConfig:
             return DriverConfig()
 
 
-def save_config(cfg: DriverConfig, path: str = CONFIG_PATH) -> None:
+def _save_config_unlocked(cfg: DriverConfig, path: str) -> None:
     """Write atomically with unique temporary paths and a known-good fallback."""
     directory = os.path.dirname(os.path.abspath(path))
     os.makedirs(directory, exist_ok=True)
@@ -537,6 +537,19 @@ def save_config(cfg: DriverConfig, path: str = CONFIG_PATH) -> None:
                     pass
 
 
+def save_config(cfg: DriverConfig, path: str = CONFIG_PATH) -> None:
+    """Serialize all writes, including full-profile saves from the Studio UI."""
+    directory = os.path.dirname(os.path.abspath(path))
+    os.makedirs(directory, exist_ok=True)
+    with open(path + ".lock", "a+", encoding="utf-8") as lock:
+        os.chmod(path + ".lock", 0o600)
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        try:
+            _save_config_unlocked(cfg, path)
+        finally:
+            fcntl.flock(lock, fcntl.LOCK_UN)
+
+
 def update_config(mutator, path: str = CONFIG_PATH) -> DriverConfig:
     """Atomically read/modify/write settings shared by tray, CLI and Studio."""
     directory = os.path.dirname(os.path.abspath(path))
@@ -546,9 +559,9 @@ def update_config(mutator, path: str = CONFIG_PATH) -> DriverConfig:
         fcntl.flock(lock, fcntl.LOCK_EX)
         try:
             # Avoid load_config() writing defaults while the update lock is held.
-            cfg = load_config(path) if os.path.exists(path) else DriverConfig()
+            cfg = load_config(path) if (os.path.exists(path) or os.path.exists(path + ".bak")) else DriverConfig()
             mutator(cfg)
-            save_config(cfg, path)
+            _save_config_unlocked(cfg, path)
             return cfg
         finally:
             fcntl.flock(lock, fcntl.LOCK_UN)
