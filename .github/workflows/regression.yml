@@ -1,0 +1,24 @@
+name: Mouse daemon regression
+on:
+  push:
+    branches: [main, "fix/resident-recovery-*"]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Python desktop bindings for existing tests
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y python3-gi gir1.2-glib-2.0
+      - name: Compile Python sources
+        run: /usr/bin/python3 -m compileall -q omni_mouse tests
+      - name: Unit and regression tests (no physical mouse)
+        run: /usr/bin/python3 -m unittest discover -s tests -p 'test_*.py' -v
+      - name: Shell syntax
+        run: |
+          bash -n install.sh uninstall.sh udev/install-udev.sh packaging/build-deb.sh
+      - name: Build Debian package
+        run: bash packaging/build-deb.sh

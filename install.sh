@@ -73,9 +73,25 @@ for svc in omni-mouse-daemon.service omni-mouse-tray.service; do
         > "${SYS_USER_DIR}/${svc}"
 done
 
-systemctl --user daemon-reload 2>/dev/null || true
-systemctl --user enable --now omni-mouse-daemon.service 2>/dev/null || true
-systemctl --user enable --now omni-mouse-tray.service 2>/dev/null || true
+if ! systemctl --user daemon-reload; then
+    echo "错误: systemd 用户会话不可用，请在桌面用户登录后运行，勿使用 sudo ./install.sh" >&2
+    exit 1
+fi
+# Remove a conflicting legacy XDG desktop autostart from an older installation.
+rm -f "${HOME}/.config/autostart/omni-mouse-tray.desktop"
+systemctl --user enable omni-mouse-daemon.service omni-mouse-tray.service
+systemctl --user restart omni-mouse-daemon.service
+if [ -n "${DISPLAY:-}${WAYLAND_DISPLAY:-}" ]; then
+    systemctl --user restart omni-mouse-tray.service
+else
+    echo "无图形会话：托盘将在后续图形登录时由用户服务启动。"
+fi
+if ! systemctl --user is-active --quiet omni-mouse-daemon.service; then
+    echo "错误: 鼠标守护服务未正常运行，诊断: journalctl --user -u omni-mouse-daemon.service -n 80" >&2
+    exit 1
+fi
+echo ">>> 守护服务当前状态: $(systemctl --user is-active omni-mouse-daemon.service)"
+echo ">>> 输入设备状态请检查: omni-mouse-cli status"
 
 echo "============================================================"
 echo "Omni Mouse Studio 安装完成！"

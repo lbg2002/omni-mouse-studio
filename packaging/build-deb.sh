@@ -2,7 +2,7 @@
 set -euo pipefail
 
 PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-VERSION="1.2.3"
+VERSION="1.2.4"
 PKG_NAME="omni-mouse-studio"
 ARCH="all"
 STAGE_DIR="$(mktemp -d)"
@@ -20,7 +20,6 @@ mkdir -p "${STAGE_DIR}/DEBIAN" \
          "${STAGE_DIR}/usr/lib/systemd/user" \
          "${STAGE_DIR}/usr/share/applications" \
          "${STAGE_DIR}/usr/share/icons/hicolor/scalable/apps" \
-         "${STAGE_DIR}/etc/xdg/autostart" \
          "${DIST_DIR}"
 
 # 1. Copy Python package & resources
@@ -68,18 +67,6 @@ Keywords=mouse;omni;delux;m618xsd;inphic;w1;dpi;cpi;rgb;remapper;鼠标;多彩;�
 StartupWMClass=omni-mouse-studio
 EOF
 
-cat > "${STAGE_DIR}/etc/xdg/autostart/omni-mouse-tray.desktop" <<'EOF'
-[Desktop Entry]
-Name=Omni Mouse Studio Tray Indicator
-Name[zh_CN]=Omni Mouse 通知栏常驻托盘
-Exec=/usr/bin/omni-mouse-tray
-Icon=omni-mouse-studio
-Terminal=false
-Type=Application
-X-GNOME-Autostart-enabled=true
-NoDisplay=true
-EOF
-
 # 6. Debian control & postinst scripts
 cat > "${STAGE_DIR}/DEBIAN/control" <<EOF
 Package: ${PKG_NAME}
@@ -117,6 +104,8 @@ if [ -e /dev/uinput ]; then
     chmod 0660 /dev/uinput || true
 fi
 systemctl --global enable omni-mouse-daemon.service omni-mouse-tray.service 2>/dev/null || true
+# Avoid parallel XDG autostart and systemd instances from previous package versions.
+rm -f /etc/xdg/autostart/omni-mouse-tray.desktop
 exit 0
 EOF
 chmod 0755 "${STAGE_DIR}" "${STAGE_DIR}/DEBIAN"
