@@ -62,6 +62,13 @@
             <small id="nav-sub-onboard">芯片按键直写 · 备份 · 监控</small>
           </span>
         </button>
+        <button type="button" class="nav-item" data-pane="about">
+          <span class="nav-idx">06</span>
+          <span class="nav-labels">
+            <strong>关于与更新</strong>
+            <small>版本信息 · GitHub Release</small>
+          </span>
+        </button>
       </nav>
 
       <!-- Always-visible Live Application Focus Router -->
@@ -592,6 +599,49 @@
                 <div class="terminal-box" id="daemon-log-box">正在连接守护进程...</div>
               </div>
             </div>
+          </div>
+        </section>
+        <!-- 06 / ABOUT & SAFE, USER-INITIATED GITHUB RELEASE UPDATES -->
+        <section class="view-pane" id="pane-about">
+          <div class="hw-panel accent-top about-update-panel">
+            <div class="panel-header">
+              <div>
+                <span class="panel-tag">OMNI MOUSE STUDIO // ABOUT</span>
+                <h2>关于与软件更新</h2>
+                <p class="panel-sub">通过 GitHub Releases 获取官方版本信息，无需独立更新服务器。</p>
+              </div>
+            </div>
+            <div class="update-version-grid">
+              <div class="update-version-item">
+                <span>当前安装版本</span>
+                <strong id="about-current-version">正在读取...</strong>
+              </div>
+              <div class="update-version-item">
+                <span>最新稳定版本</span>
+                <strong id="about-latest-version">尚未检查</strong>
+              </div>
+              <div class="update-version-item">
+                <span>安装方式</span>
+                <strong id="about-install-type">—</strong>
+              </div>
+            </div>
+            <div class="update-status" id="about-update-status" role="status" aria-live="polite">
+              点击“检查更新”获取 GitHub 上的最新稳定版本。
+            </div>
+            <div class="about-update-actions">
+              <button type="button" class="hw-btn primary" id="btn-check-updates">检查更新</button>
+              <button type="button" class="hw-btn" id="btn-download-update" disabled>下载新版 .deb</button>
+              <button type="button" class="hw-btn sm" id="btn-open-releases">查看发布记录</button>
+            </div>
+            <div class="about-release-notes" id="about-release-notes" hidden>
+              <h3>最新版本说明</h3>
+              <pre id="about-release-notes-text"></pre>
+            </div>
+            <p class="panel-sub about-update-hint">
+              只在手动点击时联网查询；不会在后台自动下载或执行提权安装。
+              下载 .deb 后可在终端使用 <code id="about-install-command">sudo apt install ./omni-mouse-studio_版本_all.deb</code> 安装升级。
+              如原先通过源码安装，请先按仓库文档处理双安装来源问题。
+            </p>
           </div>
         </section>
       </div>

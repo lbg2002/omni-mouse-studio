@@ -26,6 +26,7 @@ from ..config.profiles import (
     save_config,
     update_config,
 )
+from ..updater import RELEASES_HOME, current_version, get_latest_release
 from ..daemon.engine import query_daemon
 from ..daemon.linux_input import list_supported_mouse_evdev
 from ..daemon.window_tracker import ActiveWindowTracker
@@ -851,6 +852,18 @@ def start_studio_server(backend: StudioBackendState) -> tuple[_ThreadedHTTPServe
             if not self._check_auth(parsed):
                 self._send_json({"ok": False, "error": "Unauthorized"}, status=403)
                 return
+            if path == "/api/update/info":
+                # Local-only metadata: never makes a network request.
+                self._send_json({
+                    "ok": True, "current_version": current_version(),
+                    "release_url": RELEASES_HOME,
+                    "install_type": "deb" if PROJECT_ROOT == "/usr/lib/omni-mouse-studio" else "source",
+                })
+                return
+            if path == "/api/update/check":
+                # GitHub API is queried only on an explicit About-page click.
+                self._send_json(get_latest_release())
+                return
             if path == "/api/state":
                 self._send_json(backend.full_state_payload())
                 return
@@ -939,6 +952,30 @@ def start_studio_server(backend: StudioBackendState) -> tuple[_ThreadedHTTPServe
                     self._send_json({"ok": True, "daemon": st})
                 elif path == "/api/daemon/pick_window":
                     self._send_json(backend.pick_window_now())
+                elif path == "/api/update/open":
+                    # No user-provided URL is accepted: validate the published
+                    # GitHub asset again before opening a browser download.
+                    kind = payload.get("target", "release")
+                    if kind not in ("release", "deb"):
+                        raise ValueError("Unsupported update destination")
+                    url = RELEASES_HOME
+                    if kind == "deb":
+                        release = get_latest_release()
+                        if not release["ok"]:
+                            self._send_json({"ok": False, "error": release["error"]}, status=503)
+                            return
+                        if not release["update_available"] or not release["has_deb"]:
+                            self._send_json({"ok": False, "error": "No newer Debian package available"}, status=404)
+                            return
+                        url = release["deb_url"]
+                    subprocess.Popen(
+                        ["xdg-open", url],
+                        stdin=subprocess.DEVNULL,
+                        stdout=subprocess.DEVNULL,
+                        stderr=subprocess.DEVNULL,
+                        start_new_session=True,
+                    )
+                    self._send_json({"ok": True, "opened": True})
                 else:
                     self._send_json({"ok": False, "error": f"Unknown endpoint: {path}"}, status=404)
             except Exception as exc:

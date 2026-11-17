@@ -2,7 +2,11 @@
 set -euo pipefail
 
 PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-VERSION="1.2.5"
+VERSION="$(tr -d '[:space:]' < "${PROJECT_ROOT}/VERSION")"
+if [[ ! "${VERSION}" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+    echo "Invalid VERSION file: ${VERSION}" >&2
+    exit 1
+fi
 PKG_NAME="omni-mouse-studio"
 ARCH="all"
 STAGE_DIR="$(mktemp -d)"
@@ -25,7 +29,7 @@ mkdir -p "${STAGE_DIR}/DEBIAN" \
 # 1. Copy Python package & resources
 cp -r "${PROJECT_ROOT}/omni_mouse" "${STAGE_DIR}/usr/lib/omni-mouse-studio/"
 find "${STAGE_DIR}/usr/lib/omni-mouse-studio" -name "__pycache__" -type d -exec rm -rf {} +
-cp -f "${PROJECT_ROOT}/factory_backup.json" "${STAGE_DIR}/usr/lib/omni-mouse-studio/"
+cp -f "${PROJECT_ROOT}/factory_backup.json" "${PROJECT_ROOT}/VERSION" "${STAGE_DIR}/usr/lib/omni-mouse-studio/"
 cp -f "${PROJECT_ROOT}/omni-mouse-studio" \
       "${PROJECT_ROOT}/omni-mouse-daemon" \
       "${PROJECT_ROOT}/omni-mouse-tray" \
@@ -48,7 +52,7 @@ for svc in omni-mouse-daemon.service omni-mouse-tray.service; do
         > "${STAGE_DIR}/usr/lib/systemd/user/${svc}"
 done
 
-# 5. Desktop entry, icon & XDG autostart for tray indicator
+# 5. Desktop entry and icon (tray starts via systemd, not XDG autostart)
 cp -f "${PROJECT_ROOT}/omni_mouse/ui/assets/omni-mouse-studio.svg" \
       "${STAGE_DIR}/usr/share/icons/hicolor/scalable/apps/omni-mouse-studio.svg"
 

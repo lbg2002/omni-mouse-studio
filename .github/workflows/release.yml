@@ -1,0 +1,100 @@
+name: Release Debian package
+
+# Bump VERSION on main to publish automatically, or trigger manually.
+# GitHub Releases hosts the installer and the checksum; no external server.
+on:
+  push:
+    branches: [main]
+    paths:
+      - VERSION
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: omni-release
+  cancel-in-progress: false
+
+jobs:
+  deb-release:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Read and validate version
+        id: version
+        shell: bash
+        run: |
+          set -euo pipefail
+          version="$(tr -d '[:space:]' < VERSION)"
+          [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || {
+            echo "VERSION must be MAJOR.MINOR.PATCH" >&2
+            exit 1
+          }
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "tag=v$version" >> "$GITHUB_OUTPUT"
+
+      - name: Check whether this release already exists
+        id: existing
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.version.outputs.tag }}
+        run: |
+          if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+            echo "Release $TAG already exists; refusing to overwrite published assets."
+          else
+            echo "exists=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Install test dependencies
+        if: steps.existing.outputs.exists == 'false'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y python3-gi gir1.2-glib-2.0
+
+      - name: Run automated tests
+        if: steps.existing.outputs.exists == 'false'
+        run: |
+          /usr/bin/python3 -m compileall -q omni_mouse tests
+          /usr/bin/python3 -m unittest discover -s tests -p 'test_*.py' -v
+          bash -n install.sh uninstall.sh udev/install-udev.sh packaging/build-deb.sh
+
+      - name: Build and verify Debian package
+        if: steps.existing.outputs.exists == 'false'
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          bash packaging/build-deb.sh
+          pkg="dist/omni-mouse-studio_${VERSION}_all.deb"
+          test -s "$pkg"
+          test "$(dpkg-deb --field "$pkg" Package)" = "omni-mouse-studio"
+          test "$(dpkg-deb --field "$pkg" Version)" = "$VERSION"
+          test "$(dpkg-deb --field "$pkg" Architecture)" = "all"
+          mkdir -p /tmp/omni-package-check
+          dpkg-deb -x "$pkg" /tmp/omni-package-check
+          test "$(cat /tmp/omni-package-check/usr/lib/omni-mouse-studio/VERSION)" = "$VERSION"
+          test -f /tmp/omni-package-check/usr/lib/omni-mouse-studio/omni_mouse/updater.py
+          ( cd dist && sha256sum -b "omni-mouse-studio_${VERSION}_all.deb" > "omni-mouse-studio_${VERSION}_all.deb.sha256" )
+          ( cd dist && sha256sum -c "omni-mouse-studio_${VERSION}_all.deb.sha256" )
+
+      - name: Publish GitHub Release with .deb and checksum
+        if: steps.existing.outputs.exists == 'false'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.version.outputs.tag }}
+          VERSION: ${{ steps.version.outputs.version }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          deb="dist/omni-mouse-studio_${VERSION}_all.deb"
+          gh release create "$TAG" "$deb" "$deb.sha256" \
+            --repo "$GITHUB_REPOSITORY" \
+            --target "$GITHUB_SHA" \
+            --title "Omni Mouse Studio $TAG" \
+            --generate-notes \
+            --latest
