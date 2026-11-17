@@ -46,7 +46,7 @@ cd omni-mouse-studio
 ### 方式二：构建并安装 Debian / Ubuntu `.deb` 软件包
 ```bash
 ./packaging/build-deb.sh
-sudo apt install ./dist/omni-mouse-studio_1.2.0_all.deb
+sudo apt install ./dist/omni-mouse-studio_1.2.5_all.deb
 systemctl --user enable --now omni-mouse-daemon.service omni-mouse-tray.service
 ```
 
@@ -63,6 +63,10 @@ systemctl --user enable --now omni-mouse-daemon.service omni-mouse-tray.service
   ```bash
   # 查看在线鼠标型号、CPI/DPI、灯光及守护进程状态
   omni-mouse-cli status
+
+  # 只读检查后台健康、虚拟输入权限、设备接管、托盘和待处理动作数
+  omni-mouse-cli doctor
+  omni-mouse-cli doctor --json
 
   # 切换识别策略 (auto / inphic_w1 / delux_m618xsd)
   omni-mouse-cli model auto
