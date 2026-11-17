@@ -2,10 +2,12 @@
 
 from __future__ import annotations
 
+import fcntl
 import json
 import os
 import re
 import shutil
+import tempfile
 from dataclasses import asdict, dataclass, field
 from typing import Any
 
@@ -460,21 +462,93 @@ class DriverConfig:
         )
 
 
+def _read_config(path: str) -> DriverConfig:
+    with open(path, encoding="utf-8") as fh:
+        data = json.load(fh)
+    if not isinstance(data, dict):
+        raise ValueError("config root must be an object")
+    return DriverConfig.from_dict(data)
+
+
 def load_config(path: str = CONFIG_PATH) -> DriverConfig:
+    """Load latest valid settings, falling back to last known good backup."""
     if not os.path.exists(path):
+        if os.path.exists(path + ".bak"):
+            try:
+                return _read_config(path + ".bak")
+            except (OSError, ValueError, TypeError, KeyError):
+                pass
         cfg = DriverConfig()
         save_config(cfg, path)
         return cfg
     try:
-        with open(path, encoding="utf-8") as fh:
-            return DriverConfig.from_dict(json.load(fh))
-    except Exception:
-        return DriverConfig()
+        return _read_config(path)
+    except (OSError, ValueError, TypeError, KeyError):
+        try:
+            return _read_config(path + ".bak")
+        except (OSError, ValueError, TypeError, KeyError):
+            return DriverConfig()
 
 
 def save_config(cfg: DriverConfig, path: str = CONFIG_PATH) -> None:
-    os.makedirs(os.path.dirname(path), exist_ok=True)
-    tmp = path + ".tmp"
-    with open(tmp, "w", encoding="utf-8") as fh:
-        json.dump(cfg.to_dict(), fh, ensure_ascii=False, indent=2)
-    os.replace(tmp, path)
+    """Write atomically with unique temporary paths and a known-good fallback."""
+    directory = os.path.dirname(os.path.abspath(path))
+    os.makedirs(directory, exist_ok=True)
+    temporary = None
+    backup_temp = None
+    try:
+        with tempfile.NamedTemporaryFile(
+            mode="w", encoding="utf-8", dir=directory,
+            prefix=".omni-config-", delete=False,
+        ) as fh:
+            temporary = fh.name
+            os.chmod(temporary, 0o600)
+            json.dump(cfg.to_dict(), fh, ensure_ascii=False, indent=2)
+            fh.flush()
+            os.fsync(fh.fileno())
+
+        # Never replace the backup with a malformed current file.
+        if os.path.isfile(path):
+            try:
+                _read_config(path)
+            except (OSError, ValueError, TypeError, KeyError):
+                pass
+            else:
+                with tempfile.NamedTemporaryFile(
+                    mode="wb", dir=directory, prefix=".omni-backup-", delete=False,
+                ) as backup:
+                    backup_temp = backup.name
+                    os.chmod(backup_temp, 0o600)
+                    with open(path, "rb") as original:
+                        shutil.copyfileobj(original, backup)
+                    backup.flush()
+                    os.fsync(backup.fileno())
+                os.replace(backup_temp, path + ".bak")
+                backup_temp = None
+
+        os.replace(temporary, path)
+        temporary = None
+    finally:
+        for leftover in (temporary, backup_temp):
+            if leftover is not None:
+                try:
+                    os.unlink(leftover)
+                except FileNotFoundError:
+                    pass
+
+
+def update_config(mutator, path: str = CONFIG_PATH) -> DriverConfig:
+    """Atomically read/modify/write settings shared by tray, CLI and Studio."""
+    directory = os.path.dirname(os.path.abspath(path))
+    os.makedirs(directory, exist_ok=True)
+    with open(path + ".lock", "a+", encoding="utf-8") as lock:
+        os.chmod(path + ".lock", 0o600)
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        try:
+            # Avoid load_config() writing defaults while the update lock is held.
+            cfg = load_config(path) if os.path.exists(path) else DriverConfig()
+            mutator(cfg)
+            save_config(cfg, path)
+            return cfg
+        finally:
+            fcntl.flock(lock, fcntl.LOCK_UN)
