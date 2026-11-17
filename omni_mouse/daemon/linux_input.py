@@ -7,6 +7,7 @@ import fcntl
 import glob
 import os
 import struct
+import select
 import time
 from dataclasses import dataclass
 
@@ -19,6 +20,7 @@ EV_REL = 0x02
 EV_MSC = 0x04
 
 SYN_REPORT = 0x00
+SYN_DROPPED = 0x03
 
 # Relative axes
 REL_X = 0x00
@@ -238,6 +240,10 @@ class PhysicalMouseReader:
         out: list[tuple[int, int, int]] = []
         for offset in range(0, len(raw) - (len(raw) % EVENT_STRUCT.size), EVENT_STRUCT.size):
             _, _, ev_type, code, value = EVENT_STRUCT.unpack_from(raw, offset)
+            if ev_type == EV_SYN and code == SYN_DROPPED:
+                # Kernel dropped input events; previously held button states may
+                # now be wrong. Release EVIOCGRAB and re-open a fresh reader.
+                raise OSError(errno.EOVERFLOW, "evdev input stream desynchronized", self.path)
             out.append((ev_type, code, value))
         return out
 
@@ -302,7 +308,20 @@ class VirtualInputPair:
         if fd is None or not events:
             return
         payload = b"".join(EVENT_STRUCT.pack(0, 0, t, c, int(v)) for t, c, v in events)
-        os.write(fd, payload)
+        view = memoryview(payload)
+        stalls = 0
+        while view:
+            try:
+                written = os.write(fd, view)
+            except BlockingIOError:
+                written = 0
+            if written > 0:
+                view = view[written:]
+                stalls = 0
+                continue
+            stalls += 1
+            if stalls > 2 or not select.select([], [fd], [], 0.02)[1]:
+                raise OSError(errno.EAGAIN, "uinput write stalled")
 
     def emit_mouse(self, events: list[tuple[int, int, int]], sync: bool = True) -> None:
         seq = list(events)
@@ -314,10 +333,13 @@ class VirtualInputPair:
         if not key_codes:
             return
         down = [(EV_KEY, k, 1) for k in key_codes] + [(EV_SYN, SYN_REPORT, 0)]
-        self._write(self.kbd_fd, down)
-        time.sleep(0.012)
-        up = [(EV_KEY, k, 0) for k in reversed(key_codes)] + [(EV_SYN, SYN_REPORT, 0)]
-        self._write(self.kbd_fd, up)
+        try:
+            self._write(self.kbd_fd, down)
+            time.sleep(0.012)
+        finally:
+            # Never leave Ctrl/Shift/Alt logically held after an interrupted keypress.
+            up = [(EV_KEY, k, 0) for k in reversed(key_codes)] + [(EV_SYN, SYN_REPORT, 0)]
+            self._write(self.kbd_fd, up)
 
     def emit_zoom(self, direction: int, mode: str = "wheel") -> None:
         """Zoom via Ctrl+Equal/Minus (universal GTK4/Loupe/Papers) or Ctrl+Wheel (WPS/Canvas)."""
@@ -326,11 +348,13 @@ class VirtualInputPair:
             self.emit_key_combo([KEY_LEFTCTRL, key])
             return
         step = 1 if direction > 0 else -1
-        self._write(self.kbd_fd, [(EV_KEY, KEY_LEFTCTRL, 1), (EV_SYN, SYN_REPORT, 0)])
-        time.sleep(0.018)
-        self.emit_mouse([(EV_REL, REL_WHEEL, step), (EV_REL, REL_WHEEL_HI_RES, step * 120)], sync=True)
-        time.sleep(0.018)
-        self._write(self.kbd_fd, [(EV_KEY, KEY_LEFTCTRL, 0), (EV_SYN, SYN_REPORT, 0)])
+        try:
+            self._write(self.kbd_fd, [(EV_KEY, KEY_LEFTCTRL, 1), (EV_SYN, SYN_REPORT, 0)])
+            time.sleep(0.018)
+            self.emit_mouse([(EV_REL, REL_WHEEL, step), (EV_REL, REL_WHEEL_HI_RES, step * 120)], sync=True)
+            time.sleep(0.018)
+        finally:
+            self._write(self.kbd_fd, [(EV_KEY, KEY_LEFTCTRL, 0), (EV_SYN, SYN_REPORT, 0)])
 
     def emit_scroll(self, axis: str, step: int) -> None:
         if axis == "h":
