@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import errno
 import fcntl
 import glob
 import os
@@ -228,9 +229,13 @@ class PhysicalMouseReader:
         except BlockingIOError:
             return []
         except OSError as exc:
-            if exc.errno == 11:  # EAGAIN
+            if exc.errno == errno.EAGAIN:
                 return []
             raise
+        # A disconnected evdev node becomes readable at EOF. Returning [] here
+        # silently leaves an EVIOCGRAB reader attached to a dead device forever.
+        if not raw:
+            raise OSError(errno.ENODEV, "evdev device disconnected", self.path)
         out: list[tuple[int, int, int]] = []
         for offset in range(0, len(raw) - (len(raw) % EVENT_STRUCT.size), EVENT_STRUCT.size):
             _, _, ev_type, code, value = EVENT_STRUCT.unpack_from(raw, offset)
@@ -285,10 +290,14 @@ class VirtualInputPair:
     def open(self) -> None:
         mouse_btns = [BTN_LEFT, BTN_RIGHT, BTN_MIDDLE, BTN_SIDE, BTN_EXTRA]
         mouse_rels = [REL_X, REL_Y, REL_WHEEL, REL_HWHEEL, REL_WHEEL_HI_RES, REL_HWHEEL_HI_RES]
-        self.mouse_fd = _setup_uinput_device("Delux M618XSD Smart Pointer", 0x0001, mouse_rels, mouse_btns)
-
-        kbd_keys = sorted({code for code in EVDEV_KEYS.values() if code < 0x110})
-        self.kbd_fd = _setup_uinput_device("Delux M618XSD Smart Keyboard", 0x0002, [], kbd_keys)
+        try:
+            self.mouse_fd = _setup_uinput_device("Delux M618XSD Smart Pointer", 0x0001, mouse_rels, mouse_btns)
+            kbd_keys = sorted({code for code in EVDEV_KEYS.values() if code < 0x110})
+            self.kbd_fd = _setup_uinput_device("Delux M618XSD Smart Keyboard", 0x0002, [], kbd_keys)
+        except Exception:
+            # Do not leak half-created uinput devices if keyboard setup fails.
+            self.close()
+            raise
 
     def _write(self, fd: int | None, events: list[tuple[int, int, int]]) -> None:
         if fd is None or not events:
