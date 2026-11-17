@@ -43,12 +43,28 @@ cd omni-mouse-studio
 ./uninstall.sh
 ```
 
-### 方式二：构建并安装 Debian / Ubuntu `.deb` 软件包
+### 方式二：下载官方 GitHub Release 安装包（推荐普通用户）
+
+从 [GitHub Releases](https://github.com/lbg2002/omni-mouse-studio/releases/latest) 下载对应版本的 `omni-mouse-studio_<版本>_all.deb`，
+然后在下载目录运行：
+
 ```bash
-./packaging/build-deb.sh
-sudo apt install ./dist/omni-mouse-studio_1.2.5_all.deb
+sudo apt install ./omni-mouse-studio_1.2.6_all.deb
 systemctl --user enable --now omni-mouse-daemon.service omni-mouse-tray.service
 ```
+
+> 仓库的 GitHub Actions 会在 `main` 分支的 `VERSION` 文件更新后自动完成测试、构建、校验并上传 Release，另附 SHA256 校验文件。无需自建服务器。
+
+如需自行构建：
+
+```bash
+./packaging/build-deb.sh
+sudo apt install ./dist/omni-mouse-studio_1.2.6_all.deb
+```
+
+**软件内更新：** 打开控制中心左侧 **「关于与更新」** → 点击 **「检查更新」**。检查到新版本后可打开浏览器下载对应 .deb，用系统 `apt install` 进行升级。更新检查仅按需触发，不会后台轮询或静默执行 sudo。
+
+⚠️ **不要同时使用源码和 .deb 两种安装方式**：源码安装生成的 `~/.config/systemd/user/omni-mouse-*.service` 会覆盖 .deb 附带的系统级用户服务，迁移前请参考 [驻留与升级排查文档](docs/RESIDENCY-TROUBLESHOOTING.md)。
 
 ---
 
