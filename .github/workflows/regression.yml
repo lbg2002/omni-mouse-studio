@@ -1,7 +1,7 @@
 name: Mouse daemon regression
 on:
   push:
-    branches: [main, "fix/resident-recovery-*"]
+    branches: [main, "fix/resident-recovery-*", "optimize/**"]
   pull_request:
 
 jobs:
