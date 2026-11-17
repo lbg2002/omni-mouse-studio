@@ -26,7 +26,7 @@ for _ns, _ver in (("AyatanaAppIndicator3", "0.1"), ("AppIndicator3", "0.1")):
     except Exception:
         continue
 
-from ..config.profiles import CONFIG_PATH, load_config, save_config
+from ..config.profiles import CONFIG_PATH, load_config, update_config
 from ..daemon.engine import query_daemon
 
 ASSETS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "assets")
@@ -166,6 +166,12 @@ class OmniMouseTrayApplet:
             self._updating_checks = False
 
         if st and st.get("ok"):
+            if not st.get("virtual_ready"):
+                err = st.get("virtual_error") or "初始化中"
+                self.item_hw_status.set_label(f"输入增强未就绪: {err[:65]}")
+                self.item_profile_status.set_label("守护在线 · 当前使用硬件原生功能")
+                self.poll_item.set_sensitive(False)
+                return
             dev_model = st.get("device_model") or ""
             grab_txt = "已接管" if st.get("grabbed") else "硬件直通"
             if dev_model == "inphic_w1":
@@ -200,25 +206,19 @@ class OmniMouseTrayApplet:
     def _on_toggle_daemon_enabled(self, widget: Gtk.CheckMenuItem) -> None:
         if self._updating_checks:
             return
-        cfg = load_config(CONFIG_PATH)
-        cfg.daemon_enabled = bool(widget.get_active())
-        save_config(cfg, CONFIG_PATH)
+        update_config(lambda cfg: setattr(cfg, "daemon_enabled", bool(widget.get_active())), CONFIG_PATH)
         query_daemon("reload")
         self.refresh_menu_state()
 
     def _on_toggle_per_app(self, widget: Gtk.CheckMenuItem) -> None:
         if self._updating_checks:
             return
-        cfg = load_config(CONFIG_PATH)
-        cfg.per_app_enabled = bool(widget.get_active())
-        save_config(cfg, CONFIG_PATH)
+        update_config(lambda cfg: setattr(cfg, "per_app_enabled", bool(widget.get_active())), CONFIG_PATH)
         query_daemon("reload")
         self.refresh_menu_state()
 
     def _on_set_model(self, _widget: Gtk.MenuItem, mkey: str) -> None:
-        cfg = load_config(CONFIG_PATH)
-        cfg.preferred_model = mkey
-        save_config(cfg, CONFIG_PATH)
+        update_config(lambda cfg: setattr(cfg, "preferred_model", mkey), CONFIG_PATH)
         query_daemon("reload")
         GLib.timeout_add(300, lambda: (self.refresh_menu_state(), False)[1])
 

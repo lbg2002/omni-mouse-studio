@@ -7,6 +7,7 @@ import errno
 import fcntl
 import json
 import os
+import queue
 import select
 import signal
 import socket
@@ -101,11 +102,21 @@ class SmartMouseDaemon:
         self._virtual_ready = False
         self._virtual_error = ""
         self._virtual_retry_at = 0.0
+        # Bounded action worker: never spawn one thread per macro or block the
+        # evdev reader on 12-36ms key-combo/zoom sleeps.
+        self._action_queue: queue.Queue[tuple[ActionSpec, int | None, str]] = queue.Queue(maxsize=64)
+        self._action_thread: threading.Thread | None = None
+        self._action_stop = threading.Event()
+        self._action_error: OSError | None = None
+        self._dropped_actions = 0
+        self._start_time = time.monotonic()
+        self._input_batches = 0
 
         # Runtime states
         self._sniper_scale: float | None = None
         self._sniper_btn: int | None = None
         self._passthrough_held: set[int] = set()
+        self._forwarded_buttons: set[int] = set()
         self._gesture: ActiveGestureState | None = None
         self._frac_x: float = 0.0
         self._frac_y: float = 0.0
@@ -157,11 +168,11 @@ class SmartMouseDaemon:
         stamp = time.strftime("%H:%M:%S")
         self._recent_logs.appendleft(f"[{stamp}] {msg}")
 
-    def _stat_config(self) -> float:
+    def _stat_config(self) -> int:
         try:
-            return os.path.getmtime(self.config_path)
+            return os.stat(self.config_path).st_mtime_ns
         except OSError:
-            return 0.0
+            return 0
 
     def reload_if_changed(self, force: bool = False) -> bool:
         mtime = self._stat_config()
@@ -286,6 +297,10 @@ class SmartMouseDaemon:
                 "grabbed": bool(self.reader and self.reader.grabbed),
                 "virtual_ready": self._virtual_ready,
                 "virtual_error": self._virtual_error,
+                "uptime_seconds": round(time.monotonic() - self._start_time, 1),
+                "input_batches": self._input_batches,
+                "pending_actions": self._action_queue.qsize(),
+                "dropped_actions": self._dropped_actions,
                 "window": {
                     "app_id": win.app_id,
                     "wm_class": win.wm_class,
@@ -303,6 +318,46 @@ class SmartMouseDaemon:
                 pass
 
     def _execute_action(self, spec: ActionSpec, native_btn: int | None = None, source_label: str = "") -> None:
+        # Pure button passthrough is kept synchronous to preserve native click
+        # ordering. Every potentially blocking shortcut or macro is serialized
+        # on one bounded worker instead of delaying physical pointer events.
+        if self._action_thread is not None and spec.kind in (
+            "key_combo", "media", "zoom", "scroll", "command", "macro",
+        ):
+            try:
+                self._action_queue.put_nowait((spec, native_btn, source_label))
+            except queue.Full:
+                self._dropped_actions += 1
+                if self._dropped_actions == 1 or self._dropped_actions % 50 == 0:
+                    self._log(f"动作队列已满，已丢弃 {self._dropped_actions} 个过量操作")
+            return
+        self._execute_action_now(spec, native_btn, source_label)
+
+    def _action_worker(self) -> None:
+        while not self._action_stop.is_set():
+            try:
+                spec, btn, label = self._action_queue.get(timeout=0.5)
+            except queue.Empty:
+                continue
+            try:
+                self._execute_action_now(spec, btn, label)
+            except OSError as exc:
+                # Main event loop releases EVIOCGRAB on its next wakeup.
+                self._action_error = exc
+                self._log(f"动作输出设备失效：{exc}")
+                # Stale commands must not replay after a device reconnect.
+                while True:
+                    try:
+                        self._action_queue.get_nowait()
+                        self._action_queue.task_done()
+                    except queue.Empty:
+                        break
+            except Exception as exc:
+                self._log(f"动作处理失败：{exc}")
+            finally:
+                self._action_queue.task_done()
+
+    def _execute_action_now(self, spec: ActionSpec, native_btn: int | None = None, source_label: str = "") -> None:
         if spec.kind == "disabled":
             self._log(f"{source_label}: 已拦截禁用")
             return
@@ -317,7 +372,7 @@ class SmartMouseDaemon:
                 codes = parse_combo_to_evdev(spec.combo)
                 self.virtual.emit_key_combo(codes)
                 self._log(f"{source_label} -> 快捷键 {spec.combo}")
-            except Exception as exc:
+            except (ValueError, KeyError) as exc:
                 self._log(f"快捷键错误 ({spec.combo}): {exc}")
             return
         if spec.kind == "media" and spec.media:
@@ -325,7 +380,7 @@ class SmartMouseDaemon:
                 code = resolve_evdev_key(spec.media)
                 self.virtual.emit_key_combo([code])
                 self._log(f"{source_label} -> 媒体键 {spec.media}")
-            except Exception as exc:
+            except (ValueError, KeyError) as exc:
                 self._log(f"媒体键错误: {exc}")
             return
         if spec.kind == "zoom":
@@ -366,22 +421,20 @@ class SmartMouseDaemon:
                 self._log(f"命令执行失败: {exc}")
             return
         if spec.kind == "macro" and spec.macro_steps:
-            steps = list(spec.macro_steps)
-
-            def _run_macro() -> None:
-                for idx, st in enumerate(steps):
-                    combo = str(st.get("combo", "")).strip()
-                    delay_ms = max(0, min(5000, int(st.get("delay_ms", 35))))
-                    if combo:
-                        try:
-                            codes = parse_combo_to_evdev(combo)
-                            self.virtual.emit_key_combo(codes)
-                        except Exception as exc:
-                            self._log(f"宏步骤#{idx+1}错误 ({combo}): {exc}")
-                    if delay_ms > 0 and idx + 1 < len(steps):
-                        time.sleep(delay_ms / 1000.0)
-
-            threading.Thread(target=_run_macro, daemon=True).start()
+            steps = list(spec.macro_steps)[:100]
+            for idx, st in enumerate(steps):
+                if self._action_stop.is_set():
+                    break
+                combo = str(st.get("combo", "")).strip()
+                delay_ms = max(0, min(5000, int(st.get("delay_ms", 35))))
+                if combo:
+                    try:
+                        codes = parse_combo_to_evdev(combo)
+                        self.virtual.emit_key_combo(codes)
+                    except (ValueError, KeyError) as exc:
+                        self._log(f"宏步骤#{idx+1}快捷键无效 ({combo}): {exc}")
+                if delay_ms > 0 and idx + 1 < len(steps):
+                    self._action_stop.wait(delay_ms / 1000.0)
             self._log(f"{source_label} -> 执行宏序列 ({len(steps)}步)")
 
     def _validate_gesture_alive(self, now: float) -> None:
@@ -394,6 +447,16 @@ class SmartMouseDaemon:
             return
         if age > 0.30 and self.reader is not None and not self.reader.is_button_physically_held(self._gesture.btn_code):
             self._gesture = None
+
+    def _emit_forwarded_mouse(self, events: list[tuple[int, int, int]]) -> None:
+        """Track held native buttons so device detach cannot leave phantom clicks."""
+        self.virtual.emit_mouse(events, sync=True)
+        for ev_type, code, value in events:
+            if ev_type == EV_KEY and code in (BTN_LEFT, BTN_RIGHT, BTN_MIDDLE, BTN_SIDE, BTN_EXTRA):
+                if value == 1:
+                    self._forwarded_buttons.add(code)
+                elif value == 0:
+                    self._forwarded_buttons.discard(code)
 
     def _process_batch(self, events: list[tuple[int, int, int]]) -> None:
         prof = self._active_prof_cached
@@ -417,7 +480,7 @@ class SmartMouseDaemon:
         for ev_type, code, value in events:
             if ev_type == EV_SYN:
                 if out_mouse:
-                    self.virtual.emit_mouse(out_mouse, sync=True)
+                    self._emit_forwarded_mouse(out_mouse)
                     out_mouse.clear()
                 continue
 
@@ -547,7 +610,7 @@ class SmartMouseDaemon:
                         self._execute_action(spec, native_btn=code, source_label=slot)
 
         if out_mouse:
-            self.virtual.emit_mouse(out_mouse, sync=True)
+            self._emit_forwarded_mouse(out_mouse)
 
     def _process_batch_safe(self, batch: list[tuple[int, int, int]]) -> None:
         try:
@@ -572,7 +635,7 @@ class SmartMouseDaemon:
             ]
             if fallback:
                 try:
-                    self.virtual.emit_mouse(fallback, sync=True)
+                    self._emit_forwarded_mouse(fallback)
                 except OSError:
                     self._virtual_ready = False
                     self.virtual.close()
@@ -709,6 +772,16 @@ class SmartMouseDaemon:
             self._log("虚拟鼠标与键盘已就绪")
 
     def _release_reader(self) -> None:
+        # Physical EVIOCGRAB can end while buttons are held (USB reset,
+        # suspend, config disable). Release mirrored virtual buttons first.
+        if self._forwarded_buttons and self._virtual_ready:
+            try:
+                self.virtual.emit_mouse(
+                    [(EV_KEY, button, 0) for button in sorted(self._forwarded_buttons)], sync=True,
+                )
+            except OSError:
+                pass
+        self._forwarded_buttons.clear()
         if self.reader is not None:
             self.reader.close()
             self.reader = None
@@ -723,11 +796,7 @@ class SmartMouseDaemon:
     def _sync_grab_state(self) -> None:
         if not self.config.daemon_enabled or not self._virtual_ready:
             if self.reader is not None:
-                self.reader.close()
-                self.reader = None
-                self.device_path = ""
-                self.device_model = ""
-                self._gesture = None
+                self._release_reader()
                 self._log("智能增强层已暂停（恢复纯硬件直通模式）")
             return
 
@@ -745,11 +814,7 @@ class SmartMouseDaemon:
         if self.reader is not None and pref and self.device_model and self.device_model != pref:
             cand = find_supported_mouse_evdev(preferred_model=pref)
             if cand is not None and cand.path != self.device_path:
-                self.reader.close()
-                self.reader = None
-                self.device_path = ""
-                self.device_model = ""
-                self._gesture = None
+                self._release_reader()
 
         if self.reader is None:
             node = find_supported_mouse_evdev(preferred_model=pref)
@@ -801,6 +866,11 @@ class SmartMouseDaemon:
 
         focus_thread = threading.Thread(target=self._focus_watcher_loop, daemon=True)
         focus_thread.start()
+        self._action_stop.clear()
+        self._action_thread = threading.Thread(
+            target=self._action_worker, name="omni-action-worker", daemon=True,
+        )
+        self._action_thread.start()
 
         self._log("Omni Mouse 智能守护引擎已启动")
         last_housekeep = 0.0
@@ -808,6 +878,14 @@ class SmartMouseDaemon:
         try:
             while self.running:
                 now = time.monotonic()
+                if self._action_error is not None:
+                    exc = self._action_error
+                    self._action_error = None
+                    self._virtual_ready = False
+                    self._virtual_error = str(exc)
+                    self._virtual_retry_at = now + 1.0
+                    self._release_reader()
+                    self.virtual.close()
                 if now - last_housekeep >= 2.0:
                     last_housekeep = now
                     self.reload_if_changed()
@@ -851,6 +929,7 @@ class SmartMouseDaemon:
                             if self.config.per_app_enabled and (ev_now - self._last_mouse_event_ts > 0.35):
                                 self._focus_wake.set()
                             self._last_mouse_event_ts = ev_now
+                            self._input_batches += 1
                             self._process_batch_safe(batch)
                     except OSError as exc:
                         self._log(f"输入设备异常 ({self.device_path}): {exc}；准备重连")
@@ -864,9 +943,11 @@ class SmartMouseDaemon:
         finally:
             self.running = False
             self._focus_wake.set()
-            if self.reader is not None:
-                self.reader.close()
-                self.reader = None
+            self._action_stop.set()
+            if self._action_thread is not None:
+                self._action_thread.join(timeout=1.0)
+                self._action_thread = None
+            self._release_reader()
             self._close_passive_hidraw()
             self.virtual.close()
             self._close_ipc()
