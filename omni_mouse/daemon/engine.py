@@ -552,6 +552,15 @@ class SmartMouseDaemon:
     def _process_batch_safe(self, batch: list[tuple[int, int, int]]) -> None:
         try:
             self._process_batch(batch)
+        except OSError as exc:
+            # A failed uinput write must release the physical EVIOCGRAB
+            # immediately, or the real pointer can appear permanently frozen.
+            self._log(f"虚拟输入写入失败，释放物理鼠标并等待恢复: {exc}")
+            self._virtual_ready = False
+            self._virtual_error = str(exc)
+            self._virtual_retry_at = time.monotonic() + 1.0
+            self.virtual.close()
+            raise
         except Exception as exc:
             self._gesture = None
             self._sniper_scale = None
@@ -562,7 +571,12 @@ class SmartMouseDaemon:
                 if (t == EV_REL) or (t == EV_KEY and c in (BTN_LEFT, BTN_RIGHT, BTN_MIDDLE, BTN_SIDE, BTN_EXTRA))
             ]
             if fallback:
-                self.virtual.emit_mouse(fallback, sync=True)
+                try:
+                    self.virtual.emit_mouse(fallback, sync=True)
+                except OSError:
+                    self._virtual_ready = False
+                    self.virtual.close()
+                    raise
 
     def _sync_passive_hidraw(self) -> None:
         """Open passive hidraw; discard descriptors that survived device re-enumeration."""
