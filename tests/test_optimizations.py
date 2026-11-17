@@ -120,6 +120,44 @@ class TestInputSafety(unittest.TestCase):
             worker.join(timeout=2)
             daemon._action_thread = None
 
+    def test_device_detach_releases_forwarded_button(self):
+        daemon = SmartMouseDaemon()
+        daemon._virtual_ready = True
+        emitted = []
+        daemon.virtual.emit_mouse = lambda events, sync=True: emitted.extend(events)
+        daemon._process_batch_safe([
+            (li.EV_KEY, li.BTN_LEFT, 1),
+            (li.EV_SYN, li.SYN_REPORT, 0),
+        ])
+        self.assertIn(li.BTN_LEFT, daemon._forwarded_buttons)
+        daemon._release_reader()
+        self.assertIn((li.EV_KEY, li.BTN_LEFT, 0), emitted)
+        self.assertFalse(daemon._forwarded_buttons)
+
+    def test_http_server_blocks_traversal_and_large_json(self):
+        import http.client
+        from types import SimpleNamespace
+        from omni_mouse.ui.server import start_studio_server
+        server, _ = start_studio_server(SimpleNamespace(token="unit-test-token"))
+        try:
+            client = http.client.HTTPConnection("127.0.0.1", server.server_address[1], timeout=3)
+            client.request("GET", "/web/../../../README.md")
+            response = client.getresponse()
+            self.assertEqual(response.status, 404)
+            response.read()
+            client.close()
+
+            client = http.client.HTTPConnection("127.0.0.1", server.server_address[1], timeout=3)
+            client.request("POST", "/api/config/save", body=b"",
+                           headers={"X-Studio-Token": "unit-test-token", "Content-Length": str(1024 * 1024 + 1)})
+            response = client.getresponse()
+            self.assertEqual(response.status, 413)
+            response.read()
+            client.close()
+        finally:
+            server.shutdown()
+            server.server_close()
+
 
 if __name__ == "__main__":
     unittest.main()
