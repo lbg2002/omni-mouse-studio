@@ -6,6 +6,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import subprocess
 import sys
 
 ROOT = os.path.dirname(os.path.realpath(__file__))
@@ -17,6 +18,7 @@ for _candidate in (ROOT, "/usr/lib/omni-mouse-studio"):
 
 from omni_mouse.config import CONFIG_PATH, load_config, update_config
 from omni_mouse.daemon import query_daemon
+from omni_mouse.daemon.linux_input import find_inaccessible_mouse_evdev, find_supported_mouse_evdev
 from omni_mouse.hardware import (
     INPHIC_LIGHT_MODES,
     LIGHT_MODES,
@@ -138,6 +140,96 @@ def cmd_status(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_doctor(args: argparse.Namespace) -> int:
+    """Cheap read-only resident health report (does not wake hardware via HID)."""
+    cfg = load_config(CONFIG_PATH)
+    daemon = query_daemon("status")
+    checks: list[dict] = []
+
+    def record(code: str, ok: bool, message: str, suggestion: str = "", *, critical: bool = True) -> None:
+        checks.append({
+            "code": code, "ok": ok, "critical": critical,
+            "message": message, "suggestion": suggestion,
+        })
+
+    record(
+        "daemon", bool(daemon and daemon.get("ok")),
+        "后台服务在线" if daemon else "后台服务未响应",
+        "systemctl --user restart omni-mouse-daemon.service",
+    )
+    if daemon:
+        record(
+            "virtual_input", bool(daemon.get("virtual_ready")),
+            "虚拟输入已就绪" if daemon.get("virtual_ready") else
+            "虚拟输入不可用: " + (daemon.get("virtual_error") or "等待初始化"),
+            "检查 /dev/uinput 权限，执行 udev/install-udev.sh 并重新登录",
+        )
+
+    record(
+        "uinput_permission",
+        os.path.exists("/dev/uinput") and os.access("/dev/uinput", os.W_OK),
+        "/dev/uinput 可写" if os.path.exists("/dev/uinput") and os.access("/dev/uinput", os.W_OK)
+        else "/dev/uinput 不存在或当前用户无写权限",
+        "安装 udev 权限规则，确保当前用户具备相应访问权限",
+    )
+    pref = cfg.preferred_model if cfg.preferred_model != "auto" else None
+    node = find_supported_mouse_evdev(preferred_model=pref)
+    blocked = find_inaccessible_mouse_evdev()
+    if blocked:
+        record("evdev_permission", False, "鼠标事件节点无读取权限: " + ", ".join(blocked),
+               "检查 udev 规则和用户组权限")
+    elif node is None:
+        record("mouse_connected", False, "未检测到可读取的所选鼠标（可能未连接或处于休眠）",
+               "检查无线接收器、USB 连接和设备型号选择", critical=False)
+    elif cfg.daemon_enabled:
+        record(
+            "grabbed", bool(daemon and daemon.get("grabbed")),
+            "已接管鼠标输入" if daemon and daemon.get("grabbed") else "鼠标已连接，但尚未接管",
+            "检查 daemon 日志或等待设备自动重新接管",
+        )
+    else:
+        record("remap_enabled", False, "智能增强已在设置中主动关闭",
+               "在控制中心或托盘中重新开启", critical=False)
+
+    try:
+        svc = subprocess.run(
+            ["systemctl", "--user", "is-active", "omni-mouse-tray.service"],
+            capture_output=True, text=True, timeout=1, check=False,
+        )
+        tray_state = svc.stdout.strip() or "unknown"
+    except (OSError, subprocess.TimeoutExpired):
+        tray_state = "unavailable"
+    record(
+        "tray", tray_state == "active",
+        "托盘服务: " + tray_state,
+        "systemctl --user restart omni-mouse-tray.service",
+        critical=False,
+    )
+
+    ok = all(row["ok"] for row in checks if row["critical"])
+    report = {
+        "ok": ok,
+        "preferred_model": cfg.preferred_model,
+        "daemon_pid": daemon.get("pid") if daemon else None,
+        "uptime_seconds": daemon.get("uptime_seconds") if daemon else None,
+        "pending_actions": daemon.get("pending_actions") if daemon else None,
+        "dropped_actions": daemon.get("dropped_actions") if daemon else None,
+        "checks": checks,
+    }
+    if args.json:
+        print(json.dumps(report, ensure_ascii=False, indent=2))
+    else:
+        print("=== Omni Mouse 后台健康检查 ===")
+        for row in checks:
+            symbol = "OK" if row["ok"] else ("FAIL" if row["critical"] else "WARN")
+            print(f"[{symbol}] {row['message']}")
+            if not row["ok"] and row["suggestion"]:
+                print("       建议: " + row["suggestion"])
+        if daemon:
+            print(f"运行时长: {report['uptime_seconds']} s | 待执行动作: {report['pending_actions']} | 丢弃动作: {report['dropped_actions']}")
+    return 0 if ok else 1
+
+
 def cmd_set_model(args: argparse.Namespace) -> int:
     update_config(lambda cfg: setattr(cfg, "preferred_model", args.model), CONFIG_PATH)
     query_daemon("reload")
@@ -244,6 +336,10 @@ def main() -> int:
     p_st = sub.add_parser("status", help="查看当前鼠标型号、CPI/DPI、灯光及后台智能守护状态")
     p_st.add_argument("--json", action="store_true", help="输出 JSON 格式")
     p_st.set_defaults(func=cmd_status)
+
+    p_doc = sub.add_parser("doctor", help="只读后台健康检查与故障修复建议（不唤醒硬件）")
+    p_doc.add_argument("--json", action="store_true", help="输出可供自动化读取的 JSON")
+    p_doc.set_defaults(func=cmd_doctor)
 
     p_md = sub.add_parser("model", help="切换设备识别模式 (auto / inphic_w1 / delux_m618xsd)")
     p_md.add_argument("model", choices=["auto", "inphic_w1", "delux_m618xsd"])
