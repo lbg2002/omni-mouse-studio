@@ -958,24 +958,24 @@ def start_studio_server(backend: StudioBackendState) -> tuple[_ThreadedHTTPServe
                     kind = payload.get("target", "release")
                     if kind not in ("release", "deb"):
                         raise ValueError("Unsupported update destination")
-                    release = get_latest_release()
-                    if not release["ok"]:
-                        self._send_json({"ok": False, "error": release["error"]}, status=503)
-                    else:
-                        url = release["release_url"]
-                        if kind == "deb":
-                            if not release["update_available"] or not release["has_deb"]:
-                                self._send_json({"ok": False, "error": "No newer Debian package available"}, status=404)
-                                return
-                            url = release["deb_url"]
-                        subprocess.Popen(
-                            ["xdg-open", url],
-                            stdin=subprocess.DEVNULL,
-                            stdout=subprocess.DEVNULL,
-                            stderr=subprocess.DEVNULL,
-                            start_new_session=True,
-                        )
-                        self._send_json({"ok": True, "opened": True})
+                    url = RELEASES_HOME
+                    if kind == "deb":
+                        release = get_latest_release()
+                        if not release["ok"]:
+                            self._send_json({"ok": False, "error": release["error"]}, status=503)
+                            return
+                        if not release["update_available"] or not release["has_deb"]:
+                            self._send_json({"ok": False, "error": "No newer Debian package available"}, status=404)
+                            return
+                        url = release["deb_url"]
+                    subprocess.Popen(
+                        ["xdg-open", url],
+                        stdin=subprocess.DEVNULL,
+                        stdout=subprocess.DEVNULL,
+                        stderr=subprocess.DEVNULL,
+                        start_new_session=True,
+                    )
+                    self._send_json({"ok": True, "opened": True})
                 else:
                     self._send_json({"ok": False, "error": f"Unknown endpoint: {path}"}, status=404)
             except Exception as exc:
