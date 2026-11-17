@@ -817,8 +817,9 @@ def start_studio_server(backend: StudioBackendState) -> tuple[_ThreadedHTTPServe
             return qs.get("token", [""])[0] == backend.token
 
         def _serve_file(self, base_dir: str, rel_path: str) -> None:
-            safe_path = os.path.normpath(os.path.join(base_dir, rel_path.lstrip("/")))
-            if not safe_path.startswith(os.path.normpath(base_dir)) or not os.path.isfile(safe_path):
+            root = os.path.realpath(base_dir)
+            safe_path = os.path.realpath(os.path.join(root, rel_path.lstrip("/")))
+            if os.path.commonpath((root, safe_path)) != root or not os.path.isfile(safe_path):
                 self.send_error(404)
                 return
             ctype, _ = mimetypes.guess_type(safe_path)
@@ -891,12 +892,22 @@ def start_studio_server(backend: StudioBackendState) -> tuple[_ThreadedHTTPServe
             if not self._check_auth(parsed):
                 self._send_json({"ok": False, "error": "Unauthorized"}, status=403)
                 return
-            length = int(self.headers.get("Content-Length", "0") or 0)
+            try:
+                length = int(self.headers.get("Content-Length", "0") or 0)
+            except ValueError:
+                self._send_json({"ok": False, "error": "Invalid Content-Length"}, status=400)
+                return
+            if length < 0 or length > 1024 * 1024:
+                self._send_json({"ok": False, "error": "Request too large (max 1 MiB)"}, status=413)
+                return
             raw = self.rfile.read(length) if length > 0 else b"{}"
             try:
                 payload = json.loads(raw.decode("utf-8")) if raw else {}
-            except Exception:
-                payload = {}
+                if not isinstance(payload, dict):
+                    raise ValueError("JSON payload must be an object")
+            except (ValueError, UnicodeDecodeError):
+                self._send_json({"ok": False, "error": "Invalid JSON object"}, status=400)
+                return
 
             path = parsed.path
             try:
