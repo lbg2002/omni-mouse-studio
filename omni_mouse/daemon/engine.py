@@ -344,6 +344,13 @@ class SmartMouseDaemon:
                 # Main event loop releases EVIOCGRAB on its next wakeup.
                 self._action_error = exc
                 self._log(f"动作输出设备失效：{exc}")
+                # Stale commands must not replay after a device reconnect.
+                while True:
+                    try:
+                        self._action_queue.get_nowait()
+                        self._action_queue.task_done()
+                    except queue.Empty:
+                        break
             except Exception as exc:
                 self._log(f"动作处理失败：{exc}")
             finally:
@@ -364,7 +371,7 @@ class SmartMouseDaemon:
                 codes = parse_combo_to_evdev(spec.combo)
                 self.virtual.emit_key_combo(codes)
                 self._log(f"{source_label} -> 快捷键 {spec.combo}")
-            except Exception as exc:
+            except (ValueError, KeyError) as exc:
                 self._log(f"快捷键错误 ({spec.combo}): {exc}")
             return
         if spec.kind == "media" and spec.media:
@@ -372,7 +379,7 @@ class SmartMouseDaemon:
                 code = resolve_evdev_key(spec.media)
                 self.virtual.emit_key_combo([code])
                 self._log(f"{source_label} -> 媒体键 {spec.media}")
-            except Exception as exc:
+            except (ValueError, KeyError) as exc:
                 self._log(f"媒体键错误: {exc}")
             return
         if spec.kind == "zoom":
@@ -423,7 +430,7 @@ class SmartMouseDaemon:
                     try:
                         codes = parse_combo_to_evdev(combo)
                         self.virtual.emit_key_combo(codes)
-                    except ValueError as exc:
+                    except (ValueError, KeyError) as exc:
                         self._log(f"宏步骤#{idx+1}快捷键无效 ({combo}): {exc}")
                 if delay_ms > 0 and idx + 1 < len(steps):
                     self._action_stop.wait(delay_ms / 1000.0)
