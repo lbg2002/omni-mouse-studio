@@ -116,6 +116,7 @@ class SmartMouseDaemon:
         self._sniper_scale: float | None = None
         self._sniper_btn: int | None = None
         self._passthrough_held: set[int] = set()
+        self._forwarded_buttons: set[int] = set()
         self._gesture: ActiveGestureState | None = None
         self._frac_x: float = 0.0
         self._frac_y: float = 0.0
@@ -167,11 +168,11 @@ class SmartMouseDaemon:
         stamp = time.strftime("%H:%M:%S")
         self._recent_logs.appendleft(f"[{stamp}] {msg}")
 
-    def _stat_config(self) -> float:
+    def _stat_config(self) -> int:
         try:
-            return os.path.getmtime(self.config_path)
+            return os.stat(self.config_path).st_mtime_ns
         except OSError:
-            return 0.0
+            return 0
 
     def reload_if_changed(self, force: bool = False) -> bool:
         mtime = self._stat_config()
@@ -447,6 +448,16 @@ class SmartMouseDaemon:
         if age > 0.30 and self.reader is not None and not self.reader.is_button_physically_held(self._gesture.btn_code):
             self._gesture = None
 
+    def _emit_forwarded_mouse(self, events: list[tuple[int, int, int]]) -> None:
+        """Track held native buttons so device detach cannot leave phantom clicks."""
+        self.virtual.emit_mouse(events, sync=True)
+        for ev_type, code, value in events:
+            if ev_type == EV_KEY and code in (BTN_LEFT, BTN_RIGHT, BTN_MIDDLE, BTN_SIDE, BTN_EXTRA):
+                if value == 1:
+                    self._forwarded_buttons.add(code)
+                elif value == 0:
+                    self._forwarded_buttons.discard(code)
+
     def _process_batch(self, events: list[tuple[int, int, int]]) -> None:
         prof = self._active_prof_cached
         out_mouse: list[tuple[int, int, int]] = []
@@ -469,7 +480,7 @@ class SmartMouseDaemon:
         for ev_type, code, value in events:
             if ev_type == EV_SYN:
                 if out_mouse:
-                    self.virtual.emit_mouse(out_mouse, sync=True)
+                    self._emit_forwarded_mouse(out_mouse)
                     out_mouse.clear()
                 continue
 
@@ -599,7 +610,7 @@ class SmartMouseDaemon:
                         self._execute_action(spec, native_btn=code, source_label=slot)
 
         if out_mouse:
-            self.virtual.emit_mouse(out_mouse, sync=True)
+            self._emit_forwarded_mouse(out_mouse)
 
     def _process_batch_safe(self, batch: list[tuple[int, int, int]]) -> None:
         try:
@@ -624,7 +635,7 @@ class SmartMouseDaemon:
             ]
             if fallback:
                 try:
-                    self.virtual.emit_mouse(fallback, sync=True)
+                    self._emit_forwarded_mouse(fallback)
                 except OSError:
                     self._virtual_ready = False
                     self.virtual.close()
@@ -761,6 +772,16 @@ class SmartMouseDaemon:
             self._log("虚拟鼠标与键盘已就绪")
 
     def _release_reader(self) -> None:
+        # Physical EVIOCGRAB can end while buttons are held (USB reset,
+        # suspend, config disable). Release mirrored virtual buttons first.
+        if self._forwarded_buttons and self._virtual_ready:
+            try:
+                self.virtual.emit_mouse(
+                    [(EV_KEY, button, 0) for button in sorted(self._forwarded_buttons)], sync=True,
+                )
+            except OSError:
+                pass
+        self._forwarded_buttons.clear()
         if self.reader is not None:
             self.reader.close()
             self.reader = None
@@ -775,11 +796,7 @@ class SmartMouseDaemon:
     def _sync_grab_state(self) -> None:
         if not self.config.daemon_enabled or not self._virtual_ready:
             if self.reader is not None:
-                self.reader.close()
-                self.reader = None
-                self.device_path = ""
-                self.device_model = ""
-                self._gesture = None
+                self._release_reader()
                 self._log("智能增强层已暂停（恢复纯硬件直通模式）")
             return
 
@@ -797,11 +814,7 @@ class SmartMouseDaemon:
         if self.reader is not None and pref and self.device_model and self.device_model != pref:
             cand = find_supported_mouse_evdev(preferred_model=pref)
             if cand is not None and cand.path != self.device_path:
-                self.reader.close()
-                self.reader = None
-                self.device_path = ""
-                self.device_model = ""
-                self._gesture = None
+                self._release_reader()
 
         if self.reader is None:
             node = find_supported_mouse_evdev(preferred_model=pref)
@@ -934,9 +947,7 @@ class SmartMouseDaemon:
             if self._action_thread is not None:
                 self._action_thread.join(timeout=1.0)
                 self._action_thread = None
-            if self.reader is not None:
-                self.reader.close()
-                self.reader = None
+            self._release_reader()
             self._close_passive_hidraw()
             self.virtual.close()
             self._close_ipc()
