@@ -27,7 +27,7 @@ class TestConfigPersistence(unittest.TestCase):
             recovered = load_config(path)
             self.assertEqual(recovered.preferred_model, "inphic_w1")
             self.assertEqual(load_config(path + ".bak").preferred_model, "inphic_w1")
-            self.assertEqual(sorted(os.listdir(directory)), ["config.json", "config.json.bak"])
+            self.assertEqual(sorted(os.listdir(directory)), ["config.json", "config.json.bak", "config.json.lock"])
 
     def test_locked_updates_preserve_simultaneous_independent_changes(self):
         with tempfile.TemporaryDirectory() as directory:
