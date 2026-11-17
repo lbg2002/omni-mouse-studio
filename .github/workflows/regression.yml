@@ -17,8 +17,18 @@ jobs:
         run: /usr/bin/python3 -m compileall -q omni_mouse tests
       - name: Unit and regression tests (no physical mouse)
         run: /usr/bin/python3 -m unittest discover -s tests -p 'test_*.py' -v
-      - name: Shell syntax
+      - name: Shell and frontend syntax
         run: |
           bash -n install.sh uninstall.sh udev/install-udev.sh packaging/build-deb.sh
-      - name: Build Debian package
-        run: bash packaging/build-deb.sh
+          node --check omni_mouse/ui/web/studio.js
+          node --check omni_mouse/ui/web/mouse3d.js
+      - name: Build and verify Debian package metadata
+        shell: bash
+        run: |
+          set -euo pipefail
+          bash packaging/build-deb.sh
+          version="$(tr -d '[:space:]' < VERSION)"
+          deb="dist/omni-mouse-studio_${version}_all.deb"
+          test -s "$deb"
+          test "$(dpkg-deb --field "$deb" Version)" = "$version"
+          test "$(dpkg-deb --field "$deb" Package)" = "omni-mouse-studio"
