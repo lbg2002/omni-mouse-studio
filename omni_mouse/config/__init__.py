@@ -10,6 +10,7 @@ from .profiles import (
     IPC_SOCKET_PATH,
     load_config,
     save_config,
+    update_config,
 )
 
 __all__ = [
@@ -22,4 +23,5 @@ __all__ = [
     "IPC_SOCKET_PATH",
     "load_config",
     "save_config",
+    "update_config",
 ]
