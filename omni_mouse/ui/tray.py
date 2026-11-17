@@ -26,7 +26,7 @@ for _ns, _ver in (("AyatanaAppIndicator3", "0.1"), ("AppIndicator3", "0.1")):
     except Exception:
         continue
 
-from ..config.profiles import CONFIG_PATH, load_config, save_config
+from ..config.profiles import CONFIG_PATH, load_config, update_config
 from ..daemon.engine import query_daemon
 
 ASSETS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "assets")
@@ -200,25 +200,19 @@ class OmniMouseTrayApplet:
     def _on_toggle_daemon_enabled(self, widget: Gtk.CheckMenuItem) -> None:
         if self._updating_checks:
             return
-        cfg = load_config(CONFIG_PATH)
-        cfg.daemon_enabled = bool(widget.get_active())
-        save_config(cfg, CONFIG_PATH)
+        update_config(lambda cfg: setattr(cfg, "daemon_enabled", bool(widget.get_active())), CONFIG_PATH)
         query_daemon("reload")
         self.refresh_menu_state()
 
     def _on_toggle_per_app(self, widget: Gtk.CheckMenuItem) -> None:
         if self._updating_checks:
             return
-        cfg = load_config(CONFIG_PATH)
-        cfg.per_app_enabled = bool(widget.get_active())
-        save_config(cfg, CONFIG_PATH)
+        update_config(lambda cfg: setattr(cfg, "per_app_enabled", bool(widget.get_active())), CONFIG_PATH)
         query_daemon("reload")
         self.refresh_menu_state()
 
     def _on_set_model(self, _widget: Gtk.MenuItem, mkey: str) -> None:
-        cfg = load_config(CONFIG_PATH)
-        cfg.preferred_model = mkey
-        save_config(cfg, CONFIG_PATH)
+        update_config(lambda cfg: setattr(cfg, "preferred_model", mkey), CONFIG_PATH)
         query_daemon("reload")
         GLib.timeout_add(300, lambda: (self.refresh_menu_state(), False)[1])
 
