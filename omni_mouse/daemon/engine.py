@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import collections
 import errno
+import fcntl
 import json
 import os
 import select
@@ -96,6 +97,10 @@ class SmartMouseDaemon:
         self._hidraw_path: str = ""
         self._hidraw_model: str = ""
         self.running = False
+        self._lock_fd: int | None = None
+        self._virtual_ready = False
+        self._virtual_error = ""
+        self._virtual_retry_at = 0.0
 
         # Runtime states
         self._sniper_scale: float | None = None
@@ -199,6 +204,24 @@ class SmartMouseDaemon:
                     break
                 time.sleep(0.30)
 
+    def _acquire_instance_lock(self) -> bool:
+        """Keep service and manual launches from stealing each other's IPC socket."""
+        os.makedirs(os.path.dirname(self.ipc_path), exist_ok=True)
+        fd = os.open(self.ipc_path + ".lock", os.O_RDWR | os.O_CREAT, 0o600)
+        try:
+            fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError:
+            os.close(fd)
+            return False
+        self._lock_fd = fd
+        return True
+
+    def _release_instance_lock(self) -> None:
+        if self._lock_fd is not None:
+            fcntl.flock(self._lock_fd, fcntl.LOCK_UN)
+            os.close(self._lock_fd)
+            self._lock_fd = None
+
     def _open_ipc(self) -> None:
         os.makedirs(os.path.dirname(self.ipc_path), exist_ok=True)
         if os.path.exists(self.ipc_path):
@@ -261,6 +284,8 @@ class SmartMouseDaemon:
                 "device_name": self.device_name,
                 "device_model": self.device_model,
                 "grabbed": bool(self.reader and self.reader.grabbed),
+                "virtual_ready": self._virtual_ready,
+                "virtual_error": self._virtual_error,
                 "window": {
                     "app_id": win.app_id,
                     "wm_class": win.wm_class,
@@ -540,9 +565,13 @@ class SmartMouseDaemon:
                 self.virtual.emit_mouse(fallback, sync=True)
 
     def _sync_passive_hidraw(self) -> None:
-        """Open config hidraw strictly O_RDONLY to receive passive Report 0x03 (M618XSD) or 0x06 (Inphic W1) events."""
-        if self._hidraw_fd is not None and os.path.exists(self._hidraw_path):
-            if not self.device_model or self._hidraw_model == self.device_model:
+        """Open passive hidraw; discard descriptors that survived device re-enumeration."""
+        if self._hidraw_fd is not None:
+            try:
+                same_node = (os.fstat(self._hidraw_fd).st_ino == os.stat(self._hidraw_path).st_ino)
+            except OSError:
+                same_node = False
+            if same_node and (not self.device_model or self._hidraw_model == self.device_model):
                 return
             self._close_passive_hidraw()
 
@@ -604,6 +633,7 @@ class SmartMouseDaemon:
                 self._close_passive_hidraw()
                 break
             if not pkt:
+                self._close_passive_hidraw()
                 break
             if self._hidraw_model == "inphic_w1":
                 iev = decode_inphic_interrupt(pkt)
@@ -646,8 +676,38 @@ class SmartMouseDaemon:
         except Exception as exc:
             self._log(f"恢复 Inphic W1 参数提示: {exc}")
 
+    def _ensure_virtual_input(self, now: float) -> None:
+        """Keep IPC alive while uinput permissions are missing; retry without a restart loop."""
+        if self._virtual_ready or now < self._virtual_retry_at:
+            return
+        try:
+            self.virtual.open()
+        except OSError as exc:
+            self.virtual.close()
+            message = str(exc)
+            if message != self._virtual_error:
+                self._log(f"虚拟输入不可用（保持硬件直通，5秒后重试）: {message}")
+            self._virtual_error = message
+            self._virtual_retry_at = now + 5.0
+        else:
+            self._virtual_ready = True
+            self._virtual_error = ""
+            self._log("虚拟鼠标与键盘已就绪")
+
+    def _release_reader(self) -> None:
+        if self.reader is not None:
+            self.reader.close()
+            self.reader = None
+        self.device_path = ""
+        self.device_name = ""
+        self.device_model = ""
+        self._gesture = None
+        self._passthrough_held.clear()
+        self._sniper_btn = None
+        self._sniper_scale = None
+
     def _sync_grab_state(self) -> None:
-        if not self.config.daemon_enabled:
+        if not self.config.daemon_enabled or not self._virtual_ready:
             if self.reader is not None:
                 self.reader.close()
                 self.reader = None
@@ -657,12 +717,15 @@ class SmartMouseDaemon:
                 self._log("智能增强层已暂停（恢复纯硬件直通模式）")
             return
 
-        if self.reader is not None and not os.path.exists(self.device_path):
-            self.reader.close()
-            self.reader = None
-            self.device_path = ""
-            self.device_model = ""
-            self._gesture = None
+        if self.reader is not None:
+            try:
+                same_node = (self.reader.fd is not None and
+                             os.fstat(self.reader.fd).st_ino == os.stat(self.device_path).st_ino)
+            except OSError:
+                same_node = False
+            if not same_node:
+                self._log("鼠标设备节点已重建，重新建立输入接管")
+                self._release_reader()
 
         pref = None if self.config.preferred_model == "auto" else self.config.preferred_model
         if self.reader is not None and pref and self.device_model and self.device_model != pref:
@@ -704,6 +767,10 @@ class SmartMouseDaemon:
                         self._log(f"检测到鼠标节点 {bpath} 无读取权限，请执行 udev/install-udev.sh 更新 70-udev 规则")
 
     def run(self) -> int:
+        # A second launch must never unlink the active daemon's socket or grab
+        # a mouse already owned by it.
+        if not self._acquire_instance_lock():
+            return 0
         self.running = True
 
         def _stop_handler(_signum: int, _frame: Any) -> None:
@@ -712,18 +779,16 @@ class SmartMouseDaemon:
         signal.signal(signal.SIGINT, _stop_handler)
         signal.signal(signal.SIGTERM, _stop_handler)
 
-        self._open_ipc()
         try:
-            self.virtual.open()
-        except OSError as exc:
-            self._log(f"无法打开 /dev/uinput: {exc}")
-            self._close_ipc()
-            raise RuntimeError(f"无法打开 /dev/uinput ({exc})，请先安装 udev 权限规则。") from exc
+            self._open_ipc()
+        except Exception:
+            self._release_instance_lock()
+            raise
 
         focus_thread = threading.Thread(target=self._focus_watcher_loop, daemon=True)
         focus_thread.start()
 
-        self._log("Delux M618XSD 智能守护引擎已启动")
+        self._log("Omni Mouse 智能守护引擎已启动")
         last_housekeep = 0.0
 
         try:
@@ -732,6 +797,7 @@ class SmartMouseDaemon:
                 if now - last_housekeep >= 2.0:
                     last_housekeep = now
                     self.reload_if_changed()
+                    self._ensure_virtual_input(now)
                     self._sync_grab_state()
                     self._sync_passive_hidraw()
                     self._validate_gesture_alive(now)
@@ -746,7 +812,17 @@ class SmartMouseDaemon:
 
                 # Sleep up to 4.0s when idle (0.00% CPU); poll 0.25s only while gesture state is active or awaiting device
                 sel_timeout = 0.25 if (self._gesture is not None or self.reader is None) else 4.0
-                ready, _, _ = select.select(watch_fds, [], [], sel_timeout)
+                try:
+                    ready, _, _ = select.select(watch_fds, [], [], sel_timeout)
+                except (OSError, ValueError) as exc:
+                    if isinstance(exc, OSError) and exc.errno == errno.EINTR:
+                        continue
+                    self._log(f"输入描述符失效，准备重连: {exc}")
+                    self._release_reader()
+                    self._close_passive_hidraw()
+                    # Close stale descriptors instead of spinning at 100% CPU on POLLHUP/EBADF.
+                    time.sleep(0.1)
+                    continue
                 if self._ipc_sock is not None and self._ipc_sock.fileno() in ready:
                     self._handle_ipc_client()
 
@@ -762,12 +838,15 @@ class SmartMouseDaemon:
                                 self._focus_wake.set()
                             self._last_mouse_event_ts = ev_now
                             self._process_batch_safe(batch)
-                    except OSError:
-                        self._log(f"设备已断开 ({self.device_path})，等待重连...")
-                        self.reader.close()
-                        self.reader = None
-                        self.device_path = ""
-                        self._gesture = None
+                    except OSError as exc:
+                        self._log(f"输入设备异常 ({self.device_path}): {exc}；准备重连")
+                        self._release_reader()
+                        # An evdev disconnect does not invalidate uinput; only
+                        # recreate virtual devices if their FDs stopped working.
+                        if exc.errno in (errno.EBADF, errno.ENODEV, errno.EIO) and not os.path.exists("/dev/uinput"):
+                            self.virtual.close()
+                            self._virtual_ready = False
+                            self._virtual_retry_at = 0.0
         finally:
             self.running = False
             self._focus_wake.set()
@@ -777,6 +856,7 @@ class SmartMouseDaemon:
             self._close_passive_hidraw()
             self.virtual.close()
             self._close_ipc()
+            self._release_instance_lock()
         return 0
 
 
