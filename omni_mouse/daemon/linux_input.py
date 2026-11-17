@@ -305,8 +305,10 @@ class VirtualInputPair:
             raise
 
     def _write(self, fd: int | None, events: list[tuple[int, int, int]]) -> None:
-        if fd is None or not events:
+        if not events:
             return
+        if fd is None:
+            raise OSError(errno.ENODEV, "uinput output device not initialized")
         payload = b"".join(EVENT_STRUCT.pack(0, 0, t, c, int(v)) for t, c, v in events)
         view = memoryview(payload)
         stalls = 0
